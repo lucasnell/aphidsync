@@ -1,0 +1,11 @@
+^aphidsync\.Rproj$
+^\.Rproj\.user$
+^\.travis\.yml$
+^README\.
+^.*\.svg$
+^doc$
+^Meta$
+^LICENSE\.md$
+^_scripts$
+^.*\.rds$
+^data-raw$
