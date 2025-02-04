@@ -78,8 +78,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // fit_aphids0
-double fit_aphids0(const arma::vec& pars, const arma::mat& known_L, const arma::vec& re, const arma::uvec& time, const double& lambda, SEXP regr_ptr, const double& max_shape, const std::string& L_method, const double& L_upper_bound, const double& L_tol, const int& L_max_iters);
-RcppExport SEXP _aphidsync_fit_aphids0(SEXP parsSEXP, SEXP known_LSEXP, SEXP reSEXP, SEXP timeSEXP, SEXP lambdaSEXP, SEXP regr_ptrSEXP, SEXP max_shapeSEXP, SEXP L_methodSEXP, SEXP L_upper_boundSEXP, SEXP L_tolSEXP, SEXP L_max_itersSEXP) {
+double fit_aphids0(const arma::vec& pars, const arma::mat& known_L, const arma::vec& re, const arma::uvec& time, const double& fecund, SEXP regr_ptr, const bool& match_lambda, const double& max_shape, const std::string& L_method, const double& L_upper_bound, const double& L_tol, const int& L_max_iters);
+RcppExport SEXP _aphidsync_fit_aphids0(SEXP parsSEXP, SEXP known_LSEXP, SEXP reSEXP, SEXP timeSEXP, SEXP fecundSEXP, SEXP regr_ptrSEXP, SEXP match_lambdaSEXP, SEXP max_shapeSEXP, SEXP L_methodSEXP, SEXP L_upper_boundSEXP, SEXP L_tolSEXP, SEXP L_max_itersSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -87,14 +87,15 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< const arma::mat& >::type known_L(known_LSEXP);
     Rcpp::traits::input_parameter< const arma::vec& >::type re(reSEXP);
     Rcpp::traits::input_parameter< const arma::uvec& >::type time(timeSEXP);
-    Rcpp::traits::input_parameter< const double& >::type lambda(lambdaSEXP);
+    Rcpp::traits::input_parameter< const double& >::type fecund(fecundSEXP);
     Rcpp::traits::input_parameter< SEXP >::type regr_ptr(regr_ptrSEXP);
+    Rcpp::traits::input_parameter< const bool& >::type match_lambda(match_lambdaSEXP);
     Rcpp::traits::input_parameter< const double& >::type max_shape(max_shapeSEXP);
     Rcpp::traits::input_parameter< const std::string& >::type L_method(L_methodSEXP);
     Rcpp::traits::input_parameter< const double& >::type L_upper_bound(L_upper_boundSEXP);
     Rcpp::traits::input_parameter< const double& >::type L_tol(L_tolSEXP);
     Rcpp::traits::input_parameter< const int& >::type L_max_iters(L_max_itersSEXP);
-    rcpp_result_gen = Rcpp::wrap(fit_aphids0(pars, known_L, re, time, lambda, regr_ptr, max_shape, L_method, L_upper_bound, L_tol, L_max_iters));
+    rcpp_result_gen = Rcpp::wrap(fit_aphids0(pars, known_L, re, time, fecund, regr_ptr, match_lambda, max_shape, L_method, L_upper_bound, L_tol, L_max_iters));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -105,7 +106,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_aphidsync_optim_L", (DL_FUNC) &_aphidsync_optim_L, 7},
     {"_aphidsync_make_regr_ptr", (DL_FUNC) &_aphidsync_make_regr_ptr, 0},
     {"_aphidsync_calc_L", (DL_FUNC) &_aphidsync_calc_L, 3},
-    {"_aphidsync_fit_aphids0", (DL_FUNC) &_aphidsync_fit_aphids0, 11},
+    {"_aphidsync_fit_aphids0", (DL_FUNC) &_aphidsync_fit_aphids0, 12},
     {NULL, NULL, 0}
 };
 

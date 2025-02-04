@@ -5,14 +5,11 @@
 #include <math.h>
 #include <algorithm>
 
+#include "sim-aphids.h"
+
 using namespace Rcpp;
 
 
-constexpr double BIG_RETURN = 1e10;
-constexpr uint32_t N_STAGES = 29;
-constexpr uint32_t ADULT_STAGE = 9;
-constexpr double STARTING_ABUNDANCE = 32;
-constexpr double REAL_K = 1800;
 
 
 // Internal C++ code for use in functions exported to R
@@ -76,22 +73,6 @@ arma::vec beta_starts(const double& shape,
 
 
 
-struct OptimInfo {
-
-    arma::rowvec fecunds;
-    arma::mat L;
-    double lambda;
-    arma::cx_vec eigval;
-
-    OptimInfo(const arma::mat& L_, const double& lambda_)
-        : fecunds(L_.row(0).subvec(ADULT_STAGE-1, N_STAGES-1)),
-          L(L_),
-          lambda(lambda_),
-          eigval() {};
-
-};
-
-
 double f(unsigned n, const double *x, double *grad, void *f_data) {
 
     Rcpp::checkUserInterrupt();
@@ -115,35 +96,6 @@ double f(unsigned n, const double *x, double *grad, void *f_data) {
 
 
 
-
-
-// Create Leslie matrix with only survivals = 1 and with fecundities that
-// sum to 1. Lambda for this matrix is 1.
-inline void make_L1_cpp(arma::mat& L,
-                        const double& shape,
-                        const double& scale) {
-    if (L.n_rows != N_STAGES || L.n_cols != N_STAGES)
-        L.set_size(N_STAGES, N_STAGES);
-    L.zeros();
-    L.diag(-1).fill(1);
-    double pweib_val, pweib_val0;
-    double pweib_diff_sum = 0;
-    uint32_t adult_stages = N_STAGES - ADULT_STAGE + 1;
-    arma::rowvec pweib_diffs(adult_stages, arma::fill::none);
-    for (uint32_t i = 0; i <= adult_stages; i++) {
-        pweib_val = R::pweibull(i, shape, scale, true, false);
-        if (i > 0) {
-            pweib_diffs(i-1) = pweib_val - pweib_val0;
-            pweib_diff_sum += pweib_diffs(i-1);
-        }
-        pweib_val0 = pweib_val;
-    }
-    // So they sum to one:
-    pweib_diffs /= pweib_diff_sum;
-    L.row(0).tail(adult_stages) = pweib_diffs;
-
-    return;
-}
 
 
 // Same as above, but for use in R:
@@ -237,54 +189,6 @@ std::vector<double> optim_L(const double& shape,
 
 
 
-inline arma::mat make_pow_mat(const arma::vec& z, const uint32_t& mp) {
-
-    arma::rowvec zt = z.t();
-    arma::mat pm(mp, z.n_elem, arma::fill::none);
-    pm.row(0) = zt;
-    for (uint32_t j = 1; j < mp; j++) {
-        pm.row(j) = pm.row(j-1) % zt;
-    }
-    return pm;
-
-}
-
-inline arma::vec make_pow_vec(const double& z, const uint32_t& mp) {
-
-    arma::vec pm(mp, arma::fill::none);
-    pm(0) = z;
-    for (uint32_t j = 1; j < mp; j++) {
-        pm(j) = pm(j-1) * z;
-    }
-    return pm;
-
-}
-
-
-struct RegrInfo {
-    double b0;
-    arma::vec b_shape;
-    arma::vec b_scale;
-    arma::vec b_lambda;
-    std::vector<arma::mat> two_way;
-    arma::cube three_way;
-
-    RegrInfo(const double& b0_,
-             const arma::vec& b_shape_,
-             const arma::vec& b_scale_,
-             const arma::vec& b_lambda_,
-             const std::vector<arma::mat>& two_way_,
-             const arma::cube& three_way_)
-        : b0(b0_),
-          b_shape(b_shape_),
-          b_scale(b_scale_),
-          b_lambda(b_lambda_),
-          two_way(two_way_),
-          three_way(three_way_) {};
-
-};
-
-
 
 //' @export
 //' @noRd
@@ -310,15 +214,15 @@ SEXP make_regr_ptr() {
 // Calculate one value of `x` (value to achieve a given lambda) from the regression
 // `T` can be `arma::vec` or `subview_col<mat::elem_type>`
 template <class T>
-inline double calc_L_one__(const T& pow_shape,
-                         const T& pow_scale,
-                         const T& pow_lambda,
-                         const double& b0,
-                         const arma::vec& b_shape,
-                         const arma::vec& b_scale,
-                         const arma::vec& b_lambda,
-                         const std::vector<arma::mat>& two_way,
-                         const arma::cube& three_way) {
+double calc_L_one__(const T& pow_shape,
+                    const T& pow_scale,
+                    const T& pow_lambda,
+                    const double& b0,
+                    const arma::vec& b_shape,
+                    const arma::vec& b_scale,
+                    const arma::vec& b_lambda,
+                    const std::vector<arma::mat>& two_way,
+                    const arma::cube& three_way) {
 
     double y = b0;
 
@@ -458,36 +362,6 @@ arma::vec calc_L(const arma::vec& shape,
 
 
 
-/*
- Fit leslie matrix (`L`) for use inside fit_aphids0
- */
-int fit_L_cpp(arma::mat& L,
-              const arma::vec& pars,
-              const double& lambda,
-              const std::string& method,
-              const double& upper_bound,
-              const double& tol,
-              const int& max_iters) {
-
-    // Setup starting leslie matrix with only survivals = 1 (without fecundities)
-    make_L1_cpp(L, pars(2), pars(3));
-
-    std::vector<double> op = optim_L_cpp(L, lambda, method, upper_bound,
-                                         tol, max_iters);
-    // Fill status and only fill `L` if optimization was successful (>= 0):
-    int status = op[2];
-
-    if (status >= 0) L.row(0).tail(N_STAGES - ADULT_STAGE + 1) *= op[0];
-
-    return status;
-
-}
-
-
-
-
-
-
 
 
 //' @export
@@ -497,8 +371,9 @@ double fit_aphids0(const arma::vec& pars,
                    const arma::mat& known_L,
                    const arma::vec& re,
                    const arma::uvec& time,
-                   const double& lambda,
+                   const double& fecund,
                    SEXP regr_ptr,
+                   const bool& match_lambda = false,
                    const double& max_shape = 800,
                    const std::string& L_method = "BOBYQA",
                    const double& L_upper_bound = 1000,
@@ -517,6 +392,8 @@ double fit_aphids0(const arma::vec& pars,
 
     arma::mat L;
     XPtr<RegrInfo> regr_xptr(regr_ptr);
+    std::vector<double> op;
+    op.reserve(3);
 
     if (use_L) {
         L = known_L;
@@ -526,16 +403,40 @@ double fit_aphids0(const arma::vec& pars,
         // parameters for Weibull distribution for Leslie matrix:
         const double& w_shape(pars(2));
         const double& w_scale(pars(3));
+        // Setup starting leslie matrix with all survivals = 1 and with
+        // fecundities summing to one (lambda is also 1):
+        make_L1_cpp(L, w_shape, w_scale);
+        // Then either fit maximum fecundity or a given lambda (`fecund` is
+        // either the max [if `!match_lambda`] or lambda [if `match_lambda`]):
         int status = 0;
-        // If inputs exceed bounds of regression used to fit L, then fit
-        // using an optimizer (this way is ~700x slower)
-        if (w_shape > 5 || w_scale > 20 || lambda > 1.6 || lambda < 1.05) {
-            status = fit_L_cpp(L, pars, lambda, L_method, L_upper_bound,
-                               L_tol, L_max_iters);
-        } else {
-            double x = calc_L_one_cpp(w_shape, w_scale, lambda, regr_xptr);
-            make_L1_cpp(L, w_shape, w_scale);
+        if (!match_lambda) {
+
+            const double& max_fecund(fecund);
+            double x = max_fecund;
+            x /= arma::max(L.row(0).tail(N_STAGES - ADULT_STAGE + 1));
             L.row(0).tail(N_STAGES - ADULT_STAGE + 1) *= x;
+
+        } else {
+
+             // Adjusting lambda is less straightforward:
+
+            const double& lambda(fecund);
+            // If inputs exceed bounds of regression used to fit L, then fit
+            // using an optimizer (this way is ~700x slower)
+            if (w_shape > 5 || w_scale > 20 || lambda > 1.6 || lambda < 1.05) {
+
+                op = optim_L_cpp(L, lambda, L_method, L_upper_bound,
+                                 L_tol, L_max_iters);
+                // Fill status and only adjust `L` if optim was successful:
+                status = op[2];
+                if (status >= 0) L.row(0).tail(N_STAGES - ADULT_STAGE + 1) *= op[0];
+
+            } else {
+
+                double x = calc_L_one_cpp(w_shape, w_scale, lambda, regr_xptr);
+                L.row(0).tail(N_STAGES - ADULT_STAGE + 1) *= x;
+
+            }
         }
 
         if (status < 0) return arma::datum::nan;

@@ -148,8 +148,8 @@ sim_aphids <- function(.shape, .offset, .K, sample_filter = FALSE) {
 # Use within optim to find shape parameters that minimize the differences
 # between observed and predicted Re values.
 #
-fit_aphids0R <- function(pars, known_L, re_df, lambda, .plot = FALSE,
-                         L_upper_bound = 1000, max_shape = 800) {
+fit_aphids0R <- function(pars, known_L, re_df, fecund, match_lambda,
+                         .plot = FALSE, L_upper_bound = 1000, max_shape = 800) {
 
     # pars <- c(533.764, 393.973)
 
@@ -168,25 +168,38 @@ fit_aphids0R <- function(pars, known_L, re_df, lambda, .plot = FALSE,
     } else {
         stopifnot(length(pars) == 4)
         if (any(pars[3:4] == 0)) return(1e10)
-        n_stages <- nrow(line_s$leslie[,,1])
+        n_stages <- 29L
         adult_stage <- 9L # first adult stage
-        # Setup starting leslie matrix with only survivals = 1 (without fecundities)
+        # Setup starting leslie matrix with only survivals = 1 and with
+        # fecundities summing to 1. Lambda is also 1.
         L <- make_L1(pars[[3]], pars[[4]])
 
-        # If inputs exceed bounds of regression used to fit L, then fit
-        # using an optimizer (optimizing is ~500x slower)
-        if (pars[[3]] > 5 || pars[[4]] > 20 || lambda > 1.6 || lambda < 1.05) {
-            L_op <- optimize(\(x) {
-                Lx <- L
-                Lx[1, 9:29] <- Lx[1, 9:29] * x
-                lambda1 <- max(abs(eigen(Lx, only.values = TRUE)[["values"]]))
-                return(abs(lambda1 - lambda))
-            }, c(0, L_upper_bound))
-            x <- L_op$minimum
+        if (match_lambda) {
+
+            lambda <- fecund
+
+            # If inputs exceed bounds of regression used to fit L, then fit
+            # using an optimizer (optimizing is ~500x slower)
+            if (pars[[3]] > 5 || pars[[4]] > 20 || lambda > 1.6 || lambda < 1.05) {
+                L_op <- optimize(\(x) {
+                    Lx <- L
+                    Lx[1, 9:29] <- Lx[1, 9:29] * x
+                    lambda1 <- max(abs(eigen(Lx, only.values = TRUE)[["values"]]))
+                    return(abs(lambda1 - lambda))
+                }, c(0, L_upper_bound))
+                x <- L_op$minimum
+            } else {
+                x <- calc_L(pars[[3]], pars[[4]], lambda)[1,1]
+            }
+
         } else {
-            x <- calc_L(pars[[3]], pars[[4]], lambda)[1,1]
+
+            x <- fecund / max(L[1, adult_stage:n_stages])
+
         }
+
         L[1, adult_stage:n_stages] <- L[1, adult_stage:n_stages] * x
+
     }
 
     # Extrapolate through time:
@@ -228,7 +241,7 @@ fit_aphids0R <- function(pars, known_L, re_df, lambda, .plot = FALSE,
 # NOTE: This version doesn't allow for multiple lines (yet).
 #
 fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
-                     fit_control = list()) {
+                     match_lambda = FALSE, fit_control = list()) {
 
 
     stopifnot(length(unique(sim_df$line)) == 1L)
@@ -253,7 +266,13 @@ fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
     # # If you want to test known fecundities:
     # # leslie[1, adult_stage:n_stages] <- line_s$leslie[1, adult_stage:n_stages,1]
 
+    # `fecund` parameter depends on whether we're trying to match Leslie matrix
+    # lambda or max fecundity
     lambda <- max(abs(eigen(line_s$leslie[,,1], only.values = TRUE)[["values"]]))
+    if (match_lambda) {
+        fecund <- lambda
+    } else fecund <- max(line_s$leslie[,,1])
+
 
     re_df <- sim_df |>
         arrange(time) |>
@@ -309,34 +328,35 @@ fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
         all(names(fit_control) %in% names(fit_args))
         for (n in names(fit_control)) fit_args[[n]] <- fit_control[[n]]
     }
+    n_starts <- 50
     if (known_L) {
         known_L_mat <- line_s$leslie[,,1]
-        n_starts <- 10
         guess_list <- lapply(1:n_starts, \(i) runif(2, 0, c(10, 1)))
     } else {
         known_L_mat <- matrix(0, 0, 0)
-        n_starts <- 50
         guess_list <- lapply(1:n_starts, \(i) runif(4, 0, c(10, 1, 10, 20)))
     }
-    # Choose two random reps to have very low and high offset values.
+    # Choose four random reps to have very low and high offset values.
     # This helps with fitting.
-    off_inds <- sample.int(n_starts,2)
-    guess_list[[off_inds[1]]][2] <- 1e-6
-    guess_list[[off_inds[2]]][2] <- 1-1e-6
+    off_inds <- sample.int(n_starts,4)
+    for (i in off_inds[1:2]) guess_list[[i]][2] <- 1e-6
+    for (i in off_inds[3:4]) guess_list[[i]][2] <- 1 - 1e-6
     for (s in 1:n_starts) {
         guess <- guess_list[[s]]
         if (cpp) {
             new_op <- optim(guess, fit_aphids0,
                             known_L = known_L_mat,
                             re = re_df$re, time = re_df$time,
-                            lambda = lambda, regr_ptr = regr_ptr,
+                            fecund = fecund, regr_ptr = regr_ptr,
+                            match_lambda = match_lambda,
                             max_shape = fit_args[["max_shape"]],
                             L_method = fit_args[["L_method"]],
                             L_upper_bound = fit_args[["L_upper_bound"]],
                             L_tol = fit_args[["L_tol"]],
                             L_max_iters = fit_args[["L_max_iters"]])
         } else {
-            new_op <- optim(guess, fit_aphids0R, lambda = lambda,
+            new_op <- optim(guess, fit_aphids0R, fecund = fecund,
+                            match_lambda = match_lambda,
                             known_L = known_L, re_df = re_df,
                             L_upper_bound = fit_args[["L_upper_bound"]],
                             max_shape = fit_args[["max_shape"]])
@@ -368,6 +388,7 @@ fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
 
 
 
+
 # What're the "real" values of the Weibull fecundity parameters?
 # fop ----
 fop <- optim(c(2, 8, 60),
@@ -382,12 +403,12 @@ fop <- optim(c(2, 8, 60),
              fecunds = line_s$leslie[1,9:29,1])
 
 
-test_sim <- function(i, .known_L) {
+test_sim <- function(i, .known_L, .match_lambda) {
     shape <- runif(1, 0.5, 6)
     offset <- runif(1, 0, 1)
     K <- 1800
     sim_df <- sim_aphids(shape, offset, K)
-    fits <- fit_sims(sim_df, known_L = .known_L)
+    fits <- fit_sims(sim_df, known_L = .known_L, match_lambda = .match_lambda)
     if (length(fits) == 1) {
         if (fits == "multiple models") {
             stop(sprintf(paste("Multiple equally well-fitted models with",
@@ -423,10 +444,10 @@ test_sim <- function(i, .known_L) {
            rep = i) |>
         mutate(param = factor(param, levels = param))
 }
-test_all_sims <- function(n_sims, .known_L) {
+test_all_sims <- function(n_sims, .known_L, .match_lambda) {
     p <- progressor(steps = n_sims)
     future_lapply(1:n_sims, function(i, ...) {
-        ifits <- test_sim(i, .known_L)
+        ifits <- test_sim(i, .known_L, .match_lambda)
         p()
         return(ifits)
     },
@@ -436,77 +457,118 @@ test_all_sims <- function(n_sims, .known_L) {
 
 
 
-# 1.490096 min using futures
 
-# Takes 9 sec
-if (! file.exists("_scripts/fit_df.rds")) {
+# simulations ----
+
+# Takes 25 sec
+if (! file.exists("_scripts/known_fit_df.rds")) {
     t0 <- Sys.time()
     set.seed(1740563097)
-    fit_df <- test_all_sims(100L, .known_L = TRUE) |>
+    # Note that .match_lambda par doesn't matter here.
+    known_fit_df <- test_all_sims(100L, .known_L = TRUE, .match_lambda = TRUE) |>
         do.call(what = bind_rows)
     cat("Finished #1!\n")
     t1 <- Sys.time()
-    # write_rds(fit_df, "_scripts/fit_df.rds")
+    write_rds(known_fit_df, "_scripts/known_fit_df.rds")
     print(t1 - t0); rm(t0, t1)
-}
+} else known_fit_df <- read_rds("_scripts/known_fit_df.rds")
 
 
 # Takes ~ 4 min
-if (! file.exists("_scripts/fit_df2.rds")) {
+if (! file.exists("_scripts/lambda_fit_df.rds")) {
     t0 <- Sys.time()
     set.seed(1376453977)
-    fit_df2 <- test_all_sims(100L, .known_L = FALSE) |>
+    lambda_fit_df <- test_all_sims(100L, .known_L = FALSE, .match_lambda = TRUE) |>
         do.call(what = bind_rows)
     cat("Finished #2!\n")
     t1 <- Sys.time()
-    write_rds(fit_df2, "_scripts/fit_df2.rds")
+    write_rds(lambda_fit_df, "_scripts/lambda_fit_df.rds")
     print(t1 - t0); rm(t0, t1)
-}
+} else lambda_fit_df <- read_rds("_scripts/lambda_fit_df.rds")
+
+# Takes ~ 1 min
+if (! file.exists("_scripts/max_fit_df.rds")) {
+    t0 <- Sys.time()
+    set.seed(1376453977)
+    max_fit_df <- test_all_sims(100L, .known_L = FALSE, .match_lambda = FALSE) |>
+        do.call(what = bind_rows)
+    cat("Finished #3!\n")
+    t1 <- Sys.time()
+    write_rds(max_fit_df, "_scripts/max_fit_df.rds")
+    print(t1 - t0); rm(t0, t1)
+} else max_fit_df <- read_rds("_scripts/max_fit_df.rds")
 
 
 
-fit_df |>
+# plots ----
+
+known_fit_df |>
     ggplot(aes(obs, fit)) +
     geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
     geom_point() +
     # geom_point() +
     facet_wrap(~ param, nrow = 1, scales = "free") +
-    ggtitle("using known Leslie matrix") +
+    ggtitle("with known Leslie matrix") +
     # coord_equal() +
     scale_y_continuous()
 
-fit_df2 |>
+lambda_fit_df |>
     filter(param %in% c("shape", "offset")) |>
     # filter(fit < 15) |>
     ggplot(aes(obs, fit)) +
     geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
     geom_point() +
     facet_wrap(~ param, nrow = 1, scales = "free") +
-    ggtitle("using unknown Leslie matrix") +
+    ggtitle("with unknown Leslie matrix (using lambda)") +
+    # coord_equal() +
+    scale_y_continuous()
+
+max_fit_df |>
+    filter(param %in% c("shape", "offset")) |>
+    # filter(fit < 15) |>
+    ggplot(aes(obs, fit)) +
+    geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
+    geom_point() +
+    facet_wrap(~ param, nrow = 1, scales = "free") +
+    ggtitle("with unknown Leslie matrix (using max)") +
     # coord_equal() +
     scale_y_continuous()
 
 
 
 
-fit_df2 |>
+lambda_fit_df |>
     filter(!param %in% c("shape", "offset")) |>
     # filter(fit < 15) |>
     ggplot(aes(fit)) +
     geom_histogram(aes(x = fit), bins = 25, fill = "dodgerblue3") +
     geom_vline(data = tibble(obs = fop$par[1:2],
-                             param = levels(fit_df2$param)[-1:-2]) |>
+                             param = levels(lambda_fit_df$param)[-1:-2]) |>
                    mutate(param = factor(param, levels = param)),
                aes(xintercept = obs), linetype = 2, color = "firebrick1") +
     facet_wrap(~ param, nrow = 1, scales = "free") +
-    ggtitle("using unknown Leslie matrix") +
+    ggtitle("with unknown Leslie matrix (lambda)") +
+    # coord_equal() +
+    scale_y_continuous()
+
+max_fit_df |>
+    filter(!param %in% c("shape", "offset")) |>
+    # filter(fit < 15) |>
+    ggplot(aes(fit)) +
+    geom_histogram(aes(x = fit), bins = 25, fill = "dodgerblue3") +
+    geom_vline(data = tibble(obs = fop$par[1:2],
+                             param = levels(lambda_fit_df$param)[-1:-2]) |>
+                   mutate(param = factor(param, levels = param)),
+               aes(xintercept = obs), linetype = 2, color = "firebrick1") +
+    facet_wrap(~ param, nrow = 1, scales = "free") +
+    ggtitle("with unknown Leslie matrix (max)") +
     # coord_equal() +
     scale_y_continuous()
 
 
 
-fits <- with(list(shape = median(fit_df2$fit[fit_df2$param == "wshape"]),
-                  scale = median(fit_df2$fit[fit_df2$param == "wscale"]),
+fits <- with(list(shape = median(lambda_fit_df$fit[lambda_fit_df$param == "wshape"]),
+                  scale = median(lambda_fit_df$fit[lambda_fit_df$param == "wscale"]),
                   lambda = max(abs(eigen(line_s$leslie[,,1])[["values"]]))),
              {
                  x <- calc_L(shape, scale, lambda)[1,1]
@@ -523,8 +585,8 @@ optims <- with(list(shape = fop$par[1],
                    L[1,9:29] <- L[1,9:29] * x
                    L
                })
-fits_max <- with(list(shape = median(fit_df2$fit[fit_df2$param == "wshape"]),
-                      scale = median(fit_df2$fit[fit_df2$param == "wscale"]),
+fits_max <- with(list(shape = median(max_fit_df$fit[max_fit_df$param == "wshape"]),
+                      scale = median(max_fit_df$fit[max_fit_df$param == "wscale"]),
                       max_f = max(line_s$leslie[1,9:29,1])),
                {
                    L <- make_L1(shape, scale)
@@ -547,6 +609,7 @@ optims_max <- with(list(shape = fop$par[1],
     print(max(abs(eigen(optims_max)[["values"]])))
     print(max(abs(eigen(line_s$leslie[,,1])[["values"]])))
 }
+
 
 tibble(stage = 9:29,
        fit = fits[1,9:29],

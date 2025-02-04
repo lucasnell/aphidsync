@@ -33,7 +33,7 @@ calc_L <- function(shape, scale, lambda) {
 
 #' @export
 #' @noRd
-fit_aphids0 <- function(pars, known_L, re, time, lambda, regr_ptr, max_shape = 800, L_method = "BOBYQA", L_upper_bound = 1000, L_tol = 1e-4, L_max_iters = 1000L) {
-    .Call(`_aphidsync_fit_aphids0`, pars, known_L, re, time, lambda, regr_ptr, max_shape, L_method, L_upper_bound, L_tol, L_max_iters)
+fit_aphids0 <- function(pars, known_L, re, time, fecund, regr_ptr, match_lambda = FALSE, max_shape = 800, L_method = "BOBYQA", L_upper_bound = 1000, L_tol = 1e-4, L_max_iters = 1000L) {
+    .Call(`_aphidsync_fit_aphids0`, pars, known_L, re, time, fecund, regr_ptr, match_lambda, max_shape, L_method, L_upper_bound, L_tol, L_max_iters)
 }
 
