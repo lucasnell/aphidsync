@@ -367,7 +367,7 @@ arma::vec calc_L(const arma::vec& shape,
 //' @export
 //' @noRd
 //[[Rcpp::export]]
-double fit_aphids0(const arma::vec& pars,
+double fit_aphids0(arma::vec pars,
                    const arma::mat& known_L_mat,
                    const arma::vec& re,
                    const arma::uvec& time,
@@ -379,6 +379,10 @@ double fit_aphids0(const arma::vec& pars,
                    const double& L_upper_bound = 1000,
                    const double& L_tol = 1e-4,
                    const int& L_max_iters = 1000) {
+
+
+    pars(1) = inv_logit_cpp(pars(1));
+    if (pars.n_elem >= 5) pars(4) = inv_logit_cpp(pars(4));
 
     if (arma::any(pars < 0) || pars(1) > 1) return BIG_RETURN;
 

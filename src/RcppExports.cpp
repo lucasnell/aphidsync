@@ -78,12 +78,12 @@ BEGIN_RCPP
 END_RCPP
 }
 // fit_aphids0
-double fit_aphids0(const arma::vec& pars, const arma::mat& known_L_mat, const arma::vec& re, const arma::uvec& time, const double& fecund, SEXP regr_ptr, const bool& match_lambda, const double& max_shape, const std::string& L_method, const double& L_upper_bound, const double& L_tol, const int& L_max_iters);
+double fit_aphids0(arma::vec pars, const arma::mat& known_L_mat, const arma::vec& re, const arma::uvec& time, const double& fecund, SEXP regr_ptr, const bool& match_lambda, const double& max_shape, const std::string& L_method, const double& L_upper_bound, const double& L_tol, const int& L_max_iters);
 RcppExport SEXP _aphidsync_fit_aphids0(SEXP parsSEXP, SEXP known_L_matSEXP, SEXP reSEXP, SEXP timeSEXP, SEXP fecundSEXP, SEXP regr_ptrSEXP, SEXP match_lambdaSEXP, SEXP max_shapeSEXP, SEXP L_methodSEXP, SEXP L_upper_boundSEXP, SEXP L_tolSEXP, SEXP L_max_itersSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const arma::vec& >::type pars(parsSEXP);
+    Rcpp::traits::input_parameter< arma::vec >::type pars(parsSEXP);
     Rcpp::traits::input_parameter< const arma::mat& >::type known_L_mat(known_L_matSEXP);
     Rcpp::traits::input_parameter< const arma::vec& >::type re(reSEXP);
     Rcpp::traits::input_parameter< const arma::uvec& >::type time(timeSEXP);

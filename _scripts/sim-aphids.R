@@ -156,6 +156,9 @@ fit_aphids0R <- function(pars, known_L, re_df, fecund, match_lambda,
 
     .K <- 1800
 
+    pars[2] <- inv_logit(pars[2])
+    if (length(pars) >= 5) pars[5] <- inv_logit(pars[5])
+
     if (any(pars < 0) || pars[2] > 1) return(1e10)
     .shape <- pars[[1]]
     .offset <- pars[[2]]
@@ -356,6 +359,8 @@ fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
     }
     for (s in 1:n_starts) {
         guess <- guess_list[[s]]
+        guess[[2]] <- logit(guess[[2]])
+        if (!known_L) guess[[5]] <- logit(guess[[5]])
         if (cpp) {
             new_op <- optim(guess, fit_aphids0,
                             known_L = known_L_mat,
@@ -392,13 +397,16 @@ fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
     pars <- op$par
     names(pars) <- c("shape", "offset", "wshape", "wscale", "spar")[1:length(op$par)]
 
+    pars[2] <- inv_logit(pars[2])
+    if (!known_L) pars[5] <- inv_logit(pars[5])
+
     return(pars)
 
 }
 
 
 
-# Widthof 99th quartile (offset ignored):
+# Width of 99th quartile (offset ignored):
 get99 <- function(shape, offset) {
     sapply(shape, \(sh) {
         q99 <- qbeta(c(0.005, 0.995), sh, sh)
@@ -415,16 +423,18 @@ p_repro <- function(shape, offset) {
 
 # What're the "real" values of the Weibull fecundity parameters?
 # fop ----
-fop <- optim(c(2, 8, 60),
-             function(pars, fecunds, return_fit = FALSE) {
+fop <- optim(c(2, 8),
+             function(pars, fecunds, max_f, return_fit = FALSE) {
                  if (any(pars < 0)) return(1e10)
                  stages <- 0:length(fecunds)
                  p_distr_vals <- pweibull(stages, shape = pars[1], scale = pars[2])
-                 fit_fecunds <- pars[3] * diff(p_distr_vals) / sum(diff(p_distr_vals))
+                 fit_fecunds <- diff(p_distr_vals) / sum(diff(p_distr_vals))
+                 fit_fecunds <- fit_fecunds * max_f / max(fit_fecunds)
                  if (return_fit) return(fit_fecunds)
                  return(sum(abs(fit_fecunds - fecunds), na.rm = TRUE))
              },
-             fecunds = line_s$leslie[1,9:29,1])
+             fecunds = line_s$leslie[1,9:29,1],
+             max_f = max(line_s$leslie[,,1]))
 
 
 test_sim <- function(i, .known_L, .match_lambda) {
@@ -461,7 +471,7 @@ test_sim <- function(i, .known_L, .match_lambda) {
                      shape, offset))
     }
     .obs_vars <- c(shape, offset)
-    if (!.known_L) .obs_vars <- c(.obs_vars, fop$par[1:2], 0.8329342)
+    if (!.known_L) .obs_vars <- c(.obs_vars, fop$par, 0.8329342)
     tibble(obs = .obs_vars,
            fit = unname(fits),
            param = names(fits),
@@ -478,6 +488,29 @@ test_all_sims <- function(n_sims, .known_L, .match_lambda) {
     future.seed = TRUE,
     future.packages = c("tidyverse", "gameofclones", "aphidsync"))
 }
+
+
+
+sh <- 3
+of <- 0.5
+wsh <- fop$par[1]
+wsc <- fop$par[2]
+spa <- 0.8329342
+obs <- c(sh, of, wsh, wsc, spa)
+
+max_f <- max(line_s$leslie[,,1])
+
+sim_df <- sim_aphids(sh, of, 1800)
+re_df <- sim_df |>
+    arrange(time) |>
+    mutate(re = (lead(N) / N)^(1/(lead(time) - time)))
+
+fits <- fit_sims(sim_df, known_L = FALSE, match_lambda = FALSE)
+cbind(fits, obs)
+
+fit_aphids0R(fits, FALSE, re_df, max_f, FALSE)
+fit_aphids0R(obs, FALSE, re_df, max_f, FALSE)
+
 
 
 
@@ -509,10 +542,11 @@ surv_fit_df |>
 
 surv_fit_df |>
     filter(!param %in% c("shape", "offset")) |>
+    mutate(fit = ifelse(param == "spar", inv_logit(fit), fit)) |>
     # filter(fit < 15) |>
     ggplot(aes(fit)) +
     geom_histogram(aes(x = fit), bins = 25, fill = "dodgerblue3") +
-    geom_vline(data = tibble(obs = c(fop$par[1:2], 0.8329342),
+    geom_vline(data = tibble(obs = c(fop$par, 0.8329342),
                              param = levels(surv_fit_df$param)[-1:-2]) |>
                    mutate(param = factor(param, levels = param)),
                aes(xintercept = obs), linetype = 2, color = "firebrick1") +
@@ -633,7 +667,7 @@ lambda_fit_df |>
     # filter(fit < 15) |>
     ggplot(aes(fit)) +
     geom_histogram(aes(x = fit), bins = 25, fill = "dodgerblue3") +
-    geom_vline(data = tibble(obs = fop$par[1:2],
+    geom_vline(data = tibble(obs = fop$par,
                              param = levels(lambda_fit_df$param)[-1:-2]) |>
                    mutate(param = factor(param, levels = param)),
                aes(xintercept = obs), linetype = 2, color = "firebrick1") +
@@ -647,7 +681,7 @@ max_fit_df |>
     # filter(fit < 15) |>
     ggplot(aes(fit)) +
     geom_histogram(aes(x = fit), bins = 25, fill = "dodgerblue3") +
-    geom_vline(data = tibble(obs = fop$par[1:2],
+    geom_vline(data = tibble(obs = fop$par,
                              param = levels(lambda_fit_df$param)[-1:-2]) |>
                    mutate(param = factor(param, levels = param)),
                aes(xintercept = obs), linetype = 2, color = "firebrick1") +
@@ -762,12 +796,6 @@ surv_df <- tibble(surv = line_s$leslie[,,1][row(line_s$leslie[,,1]) -
                   stage = 1:28,
                   stage0 = stage - 28L,
                   surv1 = surv - 1)
-
-surv_df |>
-    ggplot(aes(stage, surv)) +
-    geom_hline(yintercept = c(0, 1), color = "gray70") +
-    geom_line()
-
 
 # s_mod <- lm(surv1 ~ poly(stage, 2, raw = TRUE) + 0, surv_df)
 # s_mod <- lm(surv ~ lhs, surv_df)
