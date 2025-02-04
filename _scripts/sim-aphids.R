@@ -6,6 +6,7 @@ suppressPackageStartupMessages({
     library(aphidsync)
     library(future.apply)
     library(progressr)
+    library(patchwork)
 })
 
 plan(multisession, workers = max(parallel::detectCores() - 2L, 1L))
@@ -624,5 +625,88 @@ tibble(stage = 9:29,
     geom_line() +
     scale_color_viridis_d(begin = 0.2)
 
+plot(line_s$leslie[,,1][row(line_s$leslie[,,1]) - col(line_s$leslie[,,1]) == 1], type = "l", ylab = "survival", xlab = "stage")
 
 
+
+
+get99 <- function(shape, offset) {
+    mapply(\(sh, of) {
+        q99 <- qbeta(c(0.005, 0.995), sh, sh) #+ of
+        # q99[q99 > 1] <- q99[q99 > 1] - 1
+        return(abs(diff(q99)))
+    }, sh = shape, of = offset)
+}
+
+p_repro <- function(shape, offset) {
+    mapply(\(sh, of) {
+        a0 <- beta_starts(sh, of, 1)
+        return(sum(a0[10:29]))
+    }, sh = shape, of = offset)
+}
+
+
+
+for (j in 1:2) {
+    f <- list(get99, p_repro)[[j]]
+    st <- c("99th quartile width", "Proportion reproducing")[[j]]
+    p <- imap(list("known Leslie" = known_fit_df,
+              # "unknown Leslie (lambda)" = lambda_fit_df,
+              "unknown Leslie (max)" = max_fit_df),
+         \(x, i) {
+             x |>
+                 filter(param %in% c("shape", "offset")) |>
+                 pivot_wider(names_from = "param", values_from = c(obs, fit)) |>
+                 mutate(obs = f(obs_shape, obs_offset),
+                        fit = f(fit_shape, fit_offset)) |>
+                 ggplot(aes(obs, fit)) +
+                 geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
+                 geom_point() +
+                 labs(title = i) +
+                 # coord_equal() +
+                 scale_y_continuous() +
+                 theme(plot.title = element_text(size = 12, hjust = 0.5))
+         }) |>
+        c(list(nrow = 1)) |>
+        do.call(what = wrap_plots) +
+        plot_annotation(title = st,
+                        theme = theme(plot.title = element_text(hjust = 0.5,
+                                                                size = 16)))
+    plot(p)
+}; rm(j, f, st, p)
+
+
+
+
+
+# survivals ----
+
+surv_df <- tibble(surv = line_s$leslie[,,1][row(line_s$leslie[,,1]) -
+                                                col(line_s$leslie[,,1]) == 1],
+                  stage = 1:28,
+                  stage0 = stage - 28L,
+                  lhs = - stage0 / sqrt(1 + stage0^2),
+                  surv1 = surv - 1)
+
+surv_df |>
+    ggplot(aes(stage, surv)) +
+    geom_hline(yintercept = c(0, 1), color = "gray70") +
+    geom_line()
+
+
+library(nlme)
+
+# s_mod <- lm(surv1 ~ poly(stage, 2, raw = TRUE) + 0, surv_df)
+# s_mod <- lm(surv ~ lhs, surv_df)
+s_mod <- lm(surv1 ~ 0 + stage0 + I(1 / sqrt(1 + stage0^2)), surv_df)
+
+
+surv_df |>
+    ggplot(aes(stage, surv)) +
+    geom_hline(yintercept = c(0, 1), color = "gray70") +
+    geom_line() +
+    geom_line(data = surv_df |>
+                  mutate(surv = predict(s_mod) + 1),
+                  # mutate(surv = 1 + -0.003964 * stage0 +
+                  #            -0.685815 /sqrt(1 + stage0^2)),
+              color = "dodgerblue", linetype = 2)
