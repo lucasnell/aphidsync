@@ -368,7 +368,7 @@ arma::vec calc_L(const arma::vec& shape,
 //' @noRd
 //[[Rcpp::export]]
 double fit_aphids0(const arma::vec& pars,
-                   const arma::mat& known_L,
+                   const arma::mat& known_L_mat,
                    const arma::vec& re,
                    const arma::uvec& time,
                    const double& fecund,
@@ -386,7 +386,7 @@ double fit_aphids0(const arma::vec& pars,
     const double& offset(pars(1));
     if (shape > max_shape) return BIG_RETURN;
 
-    bool use_L = known_L.n_rows == N_STAGES || known_L.n_cols == N_STAGES;
+    bool known_L = known_L_mat.n_rows == N_STAGES || known_L_mat.n_cols == N_STAGES;
 
     arma::vec aphids0 = beta_starts_cpp(shape, offset, STARTING_ABUNDANCE, N_STAGES);
 
@@ -395,17 +395,26 @@ double fit_aphids0(const arma::vec& pars,
     std::vector<double> op;
     op.reserve(3);
 
-    if (use_L) {
-        L = known_L;
+    if (known_L) {
+        L = known_L_mat;
     } else {
-        if (pars.n_elem != 4) stop("pars.n_elem != 4 without known_L");
+        if (pars.n_elem != 5) stop("pars.n_elem != 5 without known_L_mat");
         if (arma::any(pars.subvec(2, 3) == 0)) return BIG_RETURN;
+        if (pars(4) > 1) return BIG_RETURN;
         // parameters for Weibull distribution for Leslie matrix:
         const double& w_shape(pars(2));
         const double& w_scale(pars(3));
         // Setup starting leslie matrix with all survivals = 1 and with
         // fecundities summing to one (lambda is also 1):
         make_L1_cpp(L, w_shape, w_scale);
+
+        // Now use parameter #5 to estimate survivals:
+        double ns;
+        for (uint32_t i = 0; i < (N_STAGES-1U); i++) {
+            ns = -1.0 * static_cast<double>(N_STAGES - 2U - i);
+            L.diag(-1)(i) = 1 - pars(4) / std::sqrt(1 + ns * ns);
+        }
+
         // Then either fit maximum fecundity or a given lambda (`fecund` is
         // either the max [if `!match_lambda`] or lambda [if `match_lambda`]):
         int status = 0;

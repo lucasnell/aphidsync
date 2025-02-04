@@ -167,13 +167,15 @@ fit_aphids0R <- function(pars, known_L, re_df, fecund, match_lambda,
     if (known_L) {
         L <- line_s$leslie[,,1]
     } else {
-        stopifnot(length(pars) == 4)
+        stopifnot(length(pars) == 5)
         if (any(pars[3:4] == 0)) return(1e10)
+        if (pars[5] > 1) return(1e10)
         n_stages <- 29L
         adult_stage <- 9L # first adult stage
         # Setup starting leslie matrix with only survivals = 1 and with
         # fecundities summing to 1. Lambda is also 1.
         L <- make_L1(pars[[3]], pars[[4]])
+        L[row(L) - col(L) == 1] <- 1 - pars[[5]] / sqrt(1 + (-(n_stages-2L):0)^2)
 
         if (match_lambda) {
 
@@ -243,7 +245,6 @@ fit_aphids0R <- function(pars, known_L, re_df, fecund, match_lambda,
 #
 fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
                      match_lambda = FALSE, fit_control = list()) {
-
 
     stopifnot(length(unique(sim_df$line)) == 1L)
 
@@ -329,19 +330,30 @@ fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
         all(names(fit_control) %in% names(fit_args))
         for (n in names(fit_control)) fit_args[[n]] <- fit_control[[n]]
     }
-    n_starts <- 50
+    n_starts <- 100L
     if (known_L) {
         known_L_mat <- line_s$leslie[,,1]
         guess_list <- lapply(1:n_starts, \(i) runif(2, 0, c(10, 1)))
     } else {
         known_L_mat <- matrix(0, 0, 0)
-        guess_list <- lapply(1:n_starts, \(i) runif(4, 0, c(10, 1, 10, 20)))
+        guess_list <- lapply(1:n_starts, \(i) runif(5, 0, c(10, 1, 10, 20, 1)))
     }
-    # Choose four random reps to have very low and high offset values.
+    # Choose 10 random reps to have very low and high offset values.
     # This helps with fitting.
-    off_inds <- sample.int(n_starts,4)
-    for (i in off_inds[1:2]) guess_list[[i]][2] <- 1e-6
-    for (i in off_inds[3:4]) guess_list[[i]][2] <- 1 - 1e-6
+    n_hilo <- 10L
+    off_inds <- sample.int(n_starts, n_hilo)
+    for (i in off_inds[1:(n_hilo %/% 2L)])
+        guess_list[[i]][2] <- runif(1, 0, 1e-6)
+    for (i in off_inds[(n_hilo %/% 2L + 1L):n_hilo])
+        guess_list[[i]][2] <- runif(1, 1 - 1e-6, 1)
+    # Similar for survival parameter (if known_L = FALSE):
+    if (!known_L) {
+        spar_inds <- sample.int(n_starts, n_hilo)
+        for (i in spar_inds[1:(n_hilo %/% 2L)])
+            guess_list[[i]][5] <- runif(1, 0, 1e-6)
+        for (i in spar_inds[(n_hilo %/% 2L + 1L):n_hilo])
+            guess_list[[i]][5] <- runif(1, 1 - 1e-6, 1)
+    }
     for (s in 1:n_starts) {
         guess <- guess_list[[s]]
         if (cpp) {
@@ -378,9 +390,7 @@ fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
     if (is.null(op)) return("no converged") # specific meaning in `test_sim`
 
     pars <- op$par
-    if (known_L) {
-        names(pars) <- c("shape", "offset")
-    } else names(pars) <- c("shape", "offset", "wshape", "wscale")
+    names(pars) <- c("shape", "offset", "wshape", "wscale", "spar")[1:length(op$par)]
 
     return(pars)
 
@@ -388,7 +398,20 @@ fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
 
 
 
-
+# Widthof 99th quartile (offset ignored):
+get99 <- function(shape, offset) {
+    sapply(shape, \(sh) {
+        q99 <- qbeta(c(0.005, 0.995), sh, sh)
+        return(abs(diff(q99)))
+    })
+}
+# Proportion of population that's reproducing:
+p_repro <- function(shape, offset) {
+    mapply(\(sh, of) {
+        a0 <- beta_starts(sh, of, 1)
+        return(sum(a0[10:29]))
+    }, sh = shape, of = offset)
+}
 
 # What're the "real" values of the Weibull fecundity parameters?
 # fop ----
@@ -438,7 +461,7 @@ test_sim <- function(i, .known_L, .match_lambda) {
                      shape, offset))
     }
     .obs_vars <- c(shape, offset)
-    if (!.known_L) .obs_vars <- c(.obs_vars, fop$par[1:2])
+    if (!.known_L) .obs_vars <- c(.obs_vars, fop$par[1:2], 0.8329342)
     tibble(obs = .obs_vars,
            fit = unname(fits),
            param = names(fits),
@@ -455,6 +478,73 @@ test_all_sims <- function(n_sims, .known_L, .match_lambda) {
     future.seed = TRUE,
     future.packages = c("tidyverse", "gameofclones", "aphidsync"))
 }
+
+
+
+
+
+
+# LEFT OFF ----
+
+
+# Takes ~1.9 min:
+t0 <- Sys.time()
+set.seed(3456789)
+surv_fit_df <- test_all_sims(100L, .known_L = FALSE, .match_lambda = FALSE) |>
+    do.call(what = bind_rows)
+cat("Finished #2!\n")
+t1 <- Sys.time()
+print(t1 - t0); rm(t0, t1)
+
+surv_fit_df |>
+    filter(param %in% c("shape", "offset")) |>
+    ggplot(aes(obs, fit)) +
+    geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
+    geom_point() +
+    # geom_point() +
+    facet_wrap(~ param, nrow = 1, scales = "free") +
+    ggtitle("with known Leslie matrix") +
+    # coord_equal() +
+    scale_y_continuous()
+
+surv_fit_df |>
+    filter(!param %in% c("shape", "offset")) |>
+    # filter(fit < 15) |>
+    ggplot(aes(fit)) +
+    geom_histogram(aes(x = fit), bins = 25, fill = "dodgerblue3") +
+    geom_vline(data = tibble(obs = c(fop$par[1:2], 0.8329342),
+                             param = levels(surv_fit_df$param)[-1:-2]) |>
+                   mutate(param = factor(param, levels = param)),
+               aes(xintercept = obs), linetype = 2, color = "firebrick1") +
+    facet_wrap(~ param, nrow = 1, scales = "free") +
+    ggtitle("with unknown Leslie matrix (max)") +
+    # coord_equal() +
+    scale_y_continuous()
+
+
+list("99th quartile width" = get99,
+     "Proportion reproducing" = p_repro) |>
+    imap(\(f, i) {
+        surv_fit_df |>
+            filter(param %in% c("shape", "offset")) |>
+            pivot_wider(names_from = "param", values_from = c(obs, fit)) |>
+            mutate(obs = f(obs_shape, obs_offset),
+                   fit = f(fit_shape, fit_offset)) |>
+            ggplot(aes(obs, fit)) +
+            geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
+            geom_point() +
+            labs(title = i) +
+            # coord_equal() +
+            scale_y_continuous() +
+            theme(plot.title = element_text(size = 12, hjust = 0.5))
+    }) |>
+    c(list(nrow = 1)) |>
+    do.call(what = wrap_plots) +
+    plot_annotation(title = "with unknown Leslie matrix (max)",
+                    theme = theme(plot.title = element_text(hjust = 0.5,
+                                                            size = 16)))
+
+
 
 
 
@@ -630,20 +720,6 @@ plot(line_s$leslie[,,1][row(line_s$leslie[,,1]) - col(line_s$leslie[,,1]) == 1],
 
 
 
-get99 <- function(shape, offset) {
-    mapply(\(sh, of) {
-        q99 <- qbeta(c(0.005, 0.995), sh, sh) #+ of
-        # q99[q99 > 1] <- q99[q99 > 1] - 1
-        return(abs(diff(q99)))
-    }, sh = shape, of = offset)
-}
-
-p_repro <- function(shape, offset) {
-    mapply(\(sh, of) {
-        a0 <- beta_starts(sh, of, 1)
-        return(sum(a0[10:29]))
-    }, sh = shape, of = offset)
-}
 
 
 
@@ -685,7 +761,6 @@ surv_df <- tibble(surv = line_s$leslie[,,1][row(line_s$leslie[,,1]) -
                                                 col(line_s$leslie[,,1]) == 1],
                   stage = 1:28,
                   stage0 = stage - 28L,
-                  lhs = - stage0 / sqrt(1 + stage0^2),
                   surv1 = surv - 1)
 
 surv_df |>
@@ -694,11 +769,9 @@ surv_df |>
     geom_line()
 
 
-library(nlme)
-
 # s_mod <- lm(surv1 ~ poly(stage, 2, raw = TRUE) + 0, surv_df)
 # s_mod <- lm(surv ~ lhs, surv_df)
-s_mod <- lm(surv1 ~ 0 + stage0 + I(1 / sqrt(1 + stage0^2)), surv_df)
+s_mod <- lm(surv1 ~ 0 + I(1 / sqrt(1 + stage0^2)), surv_df)
 
 
 surv_df |>
@@ -707,6 +780,6 @@ surv_df |>
     geom_line() +
     geom_line(data = surv_df |>
                   mutate(surv = predict(s_mod) + 1),
-                  # mutate(surv = 1 + -0.003964 * stage0 +
-                  #            -0.685815 /sqrt(1 + stage0^2)),
+                  # mutate(surv = 1 + 0.0003926 * stage0 +
+                  #            -0.8278490 /sqrt(1 + stage0^2)),
               color = "dodgerblue", linetype = 2)
