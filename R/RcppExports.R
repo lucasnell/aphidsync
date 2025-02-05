@@ -15,25 +15,7 @@ make_L1 <- function(shape, scale) {
 
 #' @export
 #' @noRd
-optim_L <- function(shape, scale, lambda, method = "BOBYQA", upper_bound = 1000, tol = 1e-4, max_iters = 1000L) {
-    .Call(`_aphidsync_optim_L`, shape, scale, lambda, method, upper_bound, tol, max_iters)
-}
-
-#' @export
-#' @noRd
-make_regr_ptr <- function() {
-    .Call(`_aphidsync_make_regr_ptr`)
-}
-
-#' @export
-#' @noRd
-calc_L <- function(shape, scale, lambda) {
-    .Call(`_aphidsync_calc_L`, shape, scale, lambda)
-}
-
-#' @export
-#' @noRd
-fit_aphids0 <- function(pars, known_L_mat, re, time, fecund, regr_ptr, match_lambda, fit_survs, max_shape = 800, L_method = "BOBYQA", L_upper_bound = 1000, L_tol = 1e-4, L_max_iters = 1000L) {
-    .Call(`_aphidsync_fit_aphids0`, pars, known_L_mat, re, time, fecund, regr_ptr, match_lambda, fit_survs, max_shape, L_method, L_upper_bound, L_tol, L_max_iters)
+fit_aphids0 <- function(pars, known_L_mat, re, time, max_f, fit_survs, max_shape = 800) {
+    .Call(`_aphidsync_fit_aphids0`, pars, known_L_mat, re, time, max_f, fit_survs, max_shape)
 }
 

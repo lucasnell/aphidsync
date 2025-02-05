@@ -12,10 +12,8 @@ Encoding: UTF-8
 LazyData: true
 ByteCompile: true
 Imports: 
-    nloptr (>= 1.2.0),
     Rcpp (>= 1.0.14)
 LinkingTo:
-    nloptr (>= 1.2.0),
     Rcpp,
     RcppArmadillo
 SystemRequirements: GNU make

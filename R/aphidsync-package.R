@@ -5,6 +5,5 @@
 #' @useDynLib aphidsync, .registration = TRUE
 #' @import methods
 #' @import Rcpp
-#' @import nloptr
 ## usethis namespace: end
 NULL
