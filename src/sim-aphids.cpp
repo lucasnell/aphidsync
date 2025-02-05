@@ -41,6 +41,10 @@ arma::vec beta_starts_cpp(const double& shape,
 
     double sum_diff = std::round(sum_aphids0) != dbl_total_aphids0;
     if (sum_diff != 0) {
+        aphids0 *= (dbl_total_aphids0 / sum_aphids0);
+        sum_diff = std::round(arma::accu(aphids0)) != dbl_total_aphids0;
+    }
+    if (sum_diff != 0) {
         std::string err = "beta_starts magnitude error (";
         err += std::to_string(sum_diff) + ", shape = ";
         err += std::to_string(shape) + ", offset = ";
@@ -373,7 +377,8 @@ double fit_aphids0(arma::vec pars,
                    const arma::uvec& time,
                    const double& fecund,
                    SEXP regr_ptr,
-                   const bool& match_lambda = false,
+                   const bool& match_lambda,
+                   const bool& fit_survs,
                    const double& max_shape = 800,
                    const std::string& L_method = "BOBYQA",
                    const double& L_upper_bound = 1000,
@@ -395,16 +400,13 @@ double fit_aphids0(arma::vec pars,
     arma::vec aphids0 = beta_starts_cpp(shape, offset, STARTING_ABUNDANCE, N_STAGES);
 
     arma::mat L;
-    XPtr<RegrInfo> regr_xptr(regr_ptr);
-    std::vector<double> op;
-    op.reserve(3);
 
     if (known_L) {
         L = known_L_mat;
     } else {
-        if (pars.n_elem != 5) stop("pars.n_elem != 5 without known_L_mat");
+        if (pars.n_elem < 4) stop("pars.n_elem < 4 without known_L_mat");
         if (arma::any(pars.subvec(2, 3) == 0)) return BIG_RETURN;
-        if (pars(4) > 1) return BIG_RETURN;
+        if (fit_survs && pars.n_elem < 5) stop("fit_survs && pars.n_elem < 5");
         // parameters for Weibull distribution for Leslie matrix:
         const double& w_shape(pars(2));
         const double& w_scale(pars(3));
@@ -413,15 +415,17 @@ double fit_aphids0(arma::vec pars,
         make_L1_cpp(L, w_shape, w_scale);
 
         // Now use parameter #5 to estimate survivals:
-        double ns;
-        for (uint32_t i = 0; i < (N_STAGES-1U); i++) {
-            ns = -1.0 * static_cast<double>(N_STAGES - 2U - i);
-            L.diag(-1)(i) = 1 - pars(4) / std::sqrt(1 + ns * ns);
+        if (fit_survs) {
+            if (pars(4) > 1) return BIG_RETURN;
+            double ns;
+            for (uint32_t i = 0; i < (N_STAGES-1U); i++) {
+                ns = -1.0 * static_cast<double>(N_STAGES - 2U - i);
+                L.diag(-1)(i) = 1 - pars(4) / std::sqrt(1 + ns * ns);
+            }
         }
 
         // Then either fit maximum fecundity or a given lambda (`fecund` is
         // either the max [if `!match_lambda`] or lambda [if `match_lambda`]):
-        int status = 0;
         if (!match_lambda) {
 
             const double& max_fecund(fecund);
@@ -438,21 +442,22 @@ double fit_aphids0(arma::vec pars,
             // using an optimizer (this way is ~700x slower)
             if (w_shape > 5 || w_scale > 20 || lambda > 1.6 || lambda < 1.05) {
 
-                op = optim_L_cpp(L, lambda, L_method, L_upper_bound,
-                                 L_tol, L_max_iters);
-                // Fill status and only adjust `L` if optim was successful:
-                status = op[2];
-                if (status >= 0) L.row(0).tail(N_STAGES - ADULT_STAGE + 1) *= op[0];
+                std::vector<double> op = optim_L_cpp(L, lambda, L_method,
+                                                     L_upper_bound, L_tol,
+                                                     L_max_iters);
+                // Only adjust `L` if optim was successful:
+                if (op[2] < 0) return arma::datum::nan;
+                L.row(0).tail(N_STAGES - ADULT_STAGE + 1) *= op[0];
 
             } else {
 
+                XPtr<RegrInfo> regr_xptr(regr_ptr);
                 double x = calc_L_one_cpp(w_shape, w_scale, lambda, regr_xptr);
                 L.row(0).tail(N_STAGES - ADULT_STAGE + 1) *= x;
 
             }
         }
 
-        if (status < 0) return arma::datum::nan;
     }
 
     // Extrapolate through time:
