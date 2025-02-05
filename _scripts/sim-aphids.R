@@ -424,6 +424,28 @@ p_repro <- function(shape, offset) {
     }, sh = shape, of = offset)
 }
 
+
+# survivals ----
+
+surv_df <- tibble(surv = line_s$leslie[,,1][row(line_s$leslie[,,1]) -
+                                                col(line_s$leslie[,,1]) == 1],
+                  stage = 1:28,
+                  stage0 = stage - 28L,
+                  surv1 = surv - 1)
+
+# s_mod <- lm(surv1 ~ poly(stage, 2, raw = TRUE) + 0, surv_df)
+# s_mod <- lm(surv ~ lhs, surv_df)
+s_mod <- lm(surv1 ~ 0 + I(1 / sqrt(1 + stage0^2)), surv_df)
+
+surv_df |>
+    ggplot(aes(stage, surv)) +
+    geom_hline(yintercept = c(0, 1), color = "gray70") +
+    geom_line() +
+    geom_line(data = surv_df |>
+                  mutate(surv = predict(s_mod) + 1),
+              color = "dodgerblue", linetype = 2)
+
+
 # What're the "real" values of the Weibull fecundity parameters?
 # fop ----
 fop <- optim(c(2, 8),
@@ -497,39 +519,9 @@ test_all_sims <- function(n_sims, .known_L, .match_lambda, .fit_survs) {
 
 
 
-
-# WEIRDNESS ----
-# sh <- 3
-# of <- 0.5
-# wsh <- fop$par[1]
-# wsc <- fop$par[2]
-# spa <- 0.8329342
-# obs <- c(sh, of, wsh, wsc, spa)
-#
-# max_f <- max(line_s$leslie[,,1])
-#
-# sim_df <- sim_aphids(sh, of, 1800)
-# re_df <- sim_df |>
-#     arrange(time) |>
-#     mutate(re = (lead(N) / N)^(1/(lead(time) - time)))
-#
-# fits <- fit_sims(sim_df, known_L = FALSE, match_lambda = FALSE)
-# cbind(fits, obs)
-#
-# fit_aphids0R(fits, FALSE, re_df, max_f, FALSE)
-# fit_aphids0R(obs, FALSE, re_df, max_f, FALSE)
-
-
-
-
-
-
-
-
-
 # simulations ----
 
-overwrite <- TRUE
+overwrite <- FALSE
 
 # Takes 25 sec
 if (overwrite || ! file.exists("_scripts/known_fit_df.rds")) {
@@ -575,11 +567,33 @@ if (overwrite || ! file.exists("_scripts/unknown_fits_df.rds")) {
 
 
 
-# LEFT OFF HERE ----
+
+# plots ----
 
 
 
-unknown_fits_df |>
+# Map parameter names to more descriptive versions:
+param_map <- list(shape = "Initial Beta shape",
+                  offset = "Initial Beta offset",
+                  wshape = "Fecundity Weibull shape",
+                  wscale = "Fecundity Weibull scale",
+                  spar = "Survival parameter",
+                  width99 = "Width of 99% quantile",
+                  p_repro = "Proportion of initial aphids reproducing")
+# Use map above on a vector and optionally break lines:
+pretty_params <- function(uglies, nc = NULL) {
+    pretties <- map_chr(uglies, \(u) param_map[[u]])
+    if (!is.null(nc)) {
+        stopifnot(is.numeric(nc) && length(nc) == 1 && nc > 0)
+        pretties <- map_chr(pretties,
+                            \(p) paste(strwrap(p, width = nc), collapse = "\n"))
+    }
+    return(pretties)
+}
+
+
+
+unknown_ss_p <- unknown_fits_df |>
     split(~ match_lambda + fit_survs + rep) |>
     map_dfr(\(d) {
         sh <- c(d$obs[d$param == "shape"], d$fit[d$param == "shape"])
@@ -594,7 +608,11 @@ unknown_fits_df |>
     }) |>
     mutate(param = factor(param, levels = c("shape", "offset", "wshape",
                                             "wscale", "spar", "width99",
-                                            "p_repro"))) |>
+                                            "p_repro"),
+                          labels = pretty_params(c("shape", "offset", "wshape",
+                                                   "wscale", "spar", "width99",
+                                                   "p_repro"),
+                                                 nc = 30L))) |>
     group_by(param, match_lambda, fit_survs) |>
     summarize(ss = mean(abs(obs - fit)), .groups = "drop") |>
     mutate(id = paste(match_lambda, fit_survs) |> factor()) |>
@@ -604,9 +622,10 @@ unknown_fits_df |>
     geom_point(size = 4) +
     facet_wrap(~ param, scales = "free_x") +
     scale_color_viridis_d(option = "magma", begin = 0.1, end = 0.9, guide = "none") +
-    xlab("mean(| obs - fit |)")  +
+    xlab("mean( | obs - fit | )") +
     ylab("Method")
-
+unknown_ss_p
+# ggsave("_figures/unknown_ss.pdf", unknown_ss_p, width = 7, height = 6)
 
 
 unknown11 <- c(levels(unknown_fits_df$param)[1:2], "width99", "p_repro") |>
@@ -629,9 +648,10 @@ unknown11 <- c(levels(unknown_fits_df$param)[1:2], "width99", "p_repro") |>
             geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
             geom_point() +
             facet_wrap(~ match_lambda + fit_survs, nrow = 2, scales = "free_y") +
-            ggtitle(.p) +
+            ggtitle(param_map[[.p]]) +
             theme(plot.title = element_text(size = 16, hjust = 0.5))
     })
+
 
 unknown_hist <- levels(unknown_fits_df$param)[3:5] |>
     set_names() |>
@@ -644,31 +664,33 @@ unknown_hist <- levels(unknown_fits_df$param)[3:5] |>
             geom_vline(data = tibble(obs = .obs),
                        aes(xintercept = obs), linetype = 2, color = "firebrick1") +
             facet_wrap(~ match_lambda + fit_survs, nrow = 2, scales = "free_y") +
-            ggtitle(.p) +
+            ggtitle(param_map[[.p]]) +
             scale_y_continuous() +
             theme(plot.title = element_text(size = 16, hjust = 0.5))
     })
 
 levels(unknown_fits_df$param)
 
-unknown11[["shape"]]
-unknown11[["offset"]]
-unknown11[["width99"]]
-unknown11[["p_repro"]]
+# for (p in names(unknown11)) {
+#     ggsave(sprintf("_figures/1to1-%s.pdf", p), unknown11[[p]], width = 6, height = 6)
+# }; rm(p)
+# for (p in names(unknown_hist)) {
+#     ggsave(sprintf("_figures/hists-%s.pdf", p), unknown_hist[[p]], height = 4,
+#            width = ifelse(p == "spar", 3, 6))
+# }; rm(p)
+
+# unknown11[["shape"]]
+# unknown11[["offset"]]
+# unknown11[["width99"]]
+# unknown11[["p_repro"]]
 
 
-unknown_hist[["wshape"]]
-unknown_hist[["wscale"]]
-unknown_hist[["spar"]]
+# unknown_hist[["wshape"]]
+# unknown_hist[["wscale"]]
+# unknown_hist[["spar"]]
 
 
 
-
-
-
-
-
-# plots ----
 
 known_fit_df |>
     ggplot(aes(obs, fit)) +
@@ -679,178 +701,3 @@ known_fit_df |>
     ggtitle("with known Leslie matrix") +
     # coord_equal() +
     scale_y_continuous()
-
-lambda_fit_df |>
-    filter(param %in% c("shape", "offset")) |>
-    # filter(fit < 15) |>
-    ggplot(aes(obs, fit)) +
-    geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
-    geom_point() +
-    facet_wrap(~ param, nrow = 1, scales = "free") +
-    ggtitle("with unknown Leslie matrix (using lambda)") +
-    # coord_equal() +
-    scale_y_continuous()
-
-max_fit_df |>
-    filter(param %in% c("shape", "offset")) |>
-    # filter(fit < 15) |>
-    ggplot(aes(obs, fit)) +
-    geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
-    geom_point() +
-    facet_wrap(~ param, nrow = 1, scales = "free") +
-    ggtitle("with unknown Leslie matrix (using max)") +
-    # coord_equal() +
-    scale_y_continuous()
-
-
-
-
-lambda_fit_df |>
-    filter(!param %in% c("shape", "offset")) |>
-    # filter(fit < 15) |>
-    ggplot(aes(fit)) +
-    geom_histogram(aes(x = fit), bins = 25, fill = "dodgerblue3") +
-    geom_vline(data = tibble(obs = fop$par,
-                             param = levels(lambda_fit_df$param)[-1:-2]) |>
-                   mutate(param = factor(param, levels = param)),
-               aes(xintercept = obs), linetype = 2, color = "firebrick1") +
-    facet_wrap(~ param, nrow = 1, scales = "free") +
-    ggtitle("with unknown Leslie matrix (lambda)") +
-    # coord_equal() +
-    scale_y_continuous()
-
-max_fit_df |>
-    filter(!param %in% c("shape", "offset")) |>
-    # filter(fit < 15) |>
-    ggplot(aes(fit)) +
-    geom_histogram(aes(x = fit), bins = 25, fill = "dodgerblue3") +
-    geom_vline(data = tibble(obs = fop$par,
-                             param = levels(lambda_fit_df$param)[-1:-2]) |>
-                   mutate(param = factor(param, levels = param)),
-               aes(xintercept = obs), linetype = 2, color = "firebrick1") +
-    facet_wrap(~ param, nrow = 1, scales = "free") +
-    ggtitle("with unknown Leslie matrix (max)") +
-    # coord_equal() +
-    scale_y_continuous()
-
-
-
-fits <- with(list(shape = median(lambda_fit_df$fit[lambda_fit_df$param == "wshape"]),
-                  scale = median(lambda_fit_df$fit[lambda_fit_df$param == "wscale"]),
-                  lambda = max(abs(eigen(line_s$leslie[,,1])[["values"]]))),
-             {
-                 x <- calc_L(shape, scale, lambda)[1,1]
-                 L <- make_L1(shape, scale)
-                 L[1,9:29] <- L[1,9:29] * x
-                 L
-             })
-optims <- with(list(shape = fop$par[1],
-                    scale = fop$par[2],
-                    lambda = max(abs(eigen(line_s$leslie[,,1])[["values"]]))),
-               {
-                   x <- calc_L(shape, scale, lambda)[1,1]
-                   L <- make_L1(shape, scale)
-                   L[1,9:29] <- L[1,9:29] * x
-                   L
-               })
-fits_max <- with(list(shape = median(max_fit_df$fit[max_fit_df$param == "wshape"]),
-                      scale = median(max_fit_df$fit[max_fit_df$param == "wscale"]),
-                      max_f = max(line_s$leslie[1,9:29,1])),
-               {
-                   L <- make_L1(shape, scale)
-                   L[1,9:29] <- L[1,9:29] * max_f / max(L[1,9:29])
-                   L
-               })
-optims_max <- with(list(shape = fop$par[1],
-                       scale = fop$par[2],
-                       max_f = max(line_s$leslie[1,9:29,1])),
-               {
-                   L <- make_L1(shape, scale)
-                   L[1,9:29] <- L[1,9:29] * max_f / max(L[1,9:29])
-                   L
-               })
-
-{
-    print(max(abs(eigen(fits)[["values"]])))
-    print(max(abs(eigen(optims)[["values"]])))
-    print(max(abs(eigen(fits_max)[["values"]])))
-    print(max(abs(eigen(optims_max)[["values"]])))
-    print(max(abs(eigen(line_s$leslie[,,1])[["values"]])))
-}
-
-
-tibble(stage = 9:29,
-       fit = fits[1,9:29],
-       optim = optims[1,9:29],
-       fit_max = fits_max[1,9:29],
-       optim_max = optims_max[1,9:29],
-       real = line_s$leslie[1,9:29,1]) |>
-    pivot_longer(-stage, names_to = "source") |>
-    # mutate(source = factor(source, levels = c("fit", "optim", "real"))) |>
-    ggplot(aes(stage, value, color = source)) +
-    geom_point() +
-    geom_line() +
-    scale_color_viridis_d(begin = 0.2)
-
-plot(line_s$leslie[,,1][row(line_s$leslie[,,1]) - col(line_s$leslie[,,1]) == 1], type = "l", ylab = "survival", xlab = "stage")
-
-
-
-
-
-
-
-for (j in 1:2) {
-    f <- list(width99, p_repro)[[j]]
-    st <- c("99th quartile width", "Proportion reproducing")[[j]]
-    p <- imap(list("known Leslie" = known_fit_df,
-              # "unknown Leslie (lambda)" = lambda_fit_df,
-              "unknown Leslie (max)" = max_fit_df),
-         \(x, i) {
-             x |>
-                 filter(param %in% c("shape", "offset")) |>
-                 pivot_wider(names_from = "param", values_from = c(obs, fit)) |>
-                 mutate(obs = f(obs_shape, obs_offset),
-                        fit = f(fit_shape, fit_offset)) |>
-                 ggplot(aes(obs, fit)) +
-                 geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
-                 geom_point() +
-                 labs(title = i) +
-                 # coord_equal() +
-                 scale_y_continuous() +
-                 theme(plot.title = element_text(size = 12, hjust = 0.5))
-         }) |>
-        c(list(nrow = 1)) |>
-        do.call(what = wrap_plots) +
-        plot_annotation(title = st,
-                        theme = theme(plot.title = element_text(hjust = 0.5,
-                                                                size = 16)))
-    plot(p)
-}; rm(j, f, st, p)
-
-
-
-
-
-# survivals ----
-
-surv_df <- tibble(surv = line_s$leslie[,,1][row(line_s$leslie[,,1]) -
-                                                col(line_s$leslie[,,1]) == 1],
-                  stage = 1:28,
-                  stage0 = stage - 28L,
-                  surv1 = surv - 1)
-
-# s_mod <- lm(surv1 ~ poly(stage, 2, raw = TRUE) + 0, surv_df)
-# s_mod <- lm(surv ~ lhs, surv_df)
-s_mod <- lm(surv1 ~ 0 + I(1 / sqrt(1 + stage0^2)), surv_df)
-
-
-surv_df |>
-    ggplot(aes(stage, surv)) +
-    geom_hline(yintercept = c(0, 1), color = "gray70") +
-    geom_line() +
-    geom_line(data = surv_df |>
-                  mutate(surv = predict(s_mod) + 1),
-                  # mutate(surv = 1 + 0.0003926 * stage0 +
-                  #            -0.8278490 /sqrt(1 + stage0^2)),
-              color = "dodgerblue", linetype = 2)
