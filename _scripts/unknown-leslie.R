@@ -43,23 +43,6 @@ line_s <- clonal_line("susceptible",
 # avoids weird rounding issue when `p_instar_smooth` = 0:
 line_s$density_0 <- line_s$density_0 / sum(line_s$density_0) * 32
 
-# Resistant line: high resistance, low population growth rate
-line_r <- clonal_line("resistant",
-                      density_0 = 32,
-                      resistant = TRUE,
-                      surv_paras = 0.57,
-                      surv_juv_apterous = "low",
-                      surv_adult_apterous = "low",
-                      repro_apterous = "low",
-                      p_instar_smooth = 0)
-for(i in 1:3) line_r$leslie[1,,i] <- 0.8 * line_r$leslie[1,,i]
-
-
-
-
-
-
-
 
 
 sim_aphids <- function(.shape, .offset, .K, sample_filter = FALSE) {
@@ -443,24 +426,13 @@ test_all_sims <- function(n_sims, .known_L_mat, .fit_survs) {
 
 
 
+
+
+
+
+overwrite <- FALSE
+
 # simulations ----
-
-overwrite <- TRUE
-
-# Takes 52 sec
-if (overwrite || ! file.exists("_scripts/known_fit_df.rds")) {
-    t0 <- Sys.time()
-    set.seed(1740563097)
-    # Note that .match_lambda par doesn't matter here.
-    known_fit_df <- test_all_sims(100L, .known_L_mat = line_s$leslie[,,1],
-                                  .fit_survs = FALSE) |>
-        do.call(what = bind_rows)
-    cat("Finished #1!\n")
-    t1 <- Sys.time()
-    write_rds(known_fit_df, "_scripts/known_fit_df.rds")
-    print(t1 - t0); rm(t0, t1)
-} else known_fit_df <- read_rds("_scripts/known_fit_df.rds")
-
 
 # Takes ~4 min
 if (overwrite || ! file.exists("_scripts/unknown_fits_df.rds")) {
@@ -488,17 +460,6 @@ if (overwrite || ! file.exists("_scripts/unknown_fits_df.rds")) {
 
 
 # plots ----
-
-
-known_fit_df |>
-    ggplot(aes(obs, fit)) +
-    geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
-    geom_point() +
-    # geom_point() +
-    facet_wrap(~ param, nrow = 1, scales = "free") +
-    ggtitle("with known Leslie matrix") +
-    # coord_equal() +
-    scale_y_continuous()
 
 
 
