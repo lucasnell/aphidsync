@@ -249,15 +249,13 @@ fit_aphids0R <- function(pars, known_L, re_df, fecund, match_lambda, fit_survs,
 #
 fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
                      match_lambda = FALSE, fit_survs = TRUE,
-                     fit_L_control = list(), method = "optim") {
+                     fit_control = list()) {
 
     stopifnot(length(unique(sim_df$line)) == 1L)
 
-    method <- match.arg(method, c("optim", "BOBYQA", "COBYLA", "NELDERMEAD", "SBPLX"))
-
-    if (length(fit_L_control) > 0) {
-        stopifnot(is.list(fit_L_control))
-        stopifnot(!is.null(names(fit_L_control)) && all(names(fit_L_control) != ""))
+    if (length(fit_control) > 0) {
+        stopifnot(is.list(fit_control))
+        stopifnot(!is.null(names(fit_control)) && all(names(fit_control) != ""))
     }
 
     if (nrow(sim_df) < 3L) return("low rows") # special meaning in `test_sim`
@@ -325,29 +323,17 @@ fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
     val <- 1e10
     op <- NULL
     regr_ptr <- NULL
-    fit_L_args <- list(L_method = "BOBYQA",
+    fit_args <- list(L_method = "BOBYQA",
                      L_upper_bound = 1000,
                      L_tol = 1e-4,
                      L_max_iters = 1000,
                      max_shape = 800)
-    optimize_f <- NULL
-    if (method == "optim") {
-        optimize_f <- optim
-    } else if (method == "BOBYQA") {
-        optimize_f <- nloptr::bobyqa
-    } else if (method == "COBYLA") {
-        optimize_f <- nloptr::cobyla
-    } else if (method == "NELDERMEAD") {
-        optimize_f <- nloptr::neldermead
-    } else if (method == "SBPLX") {
-        optimize_f <- nloptr::sbplx
-    } else stop("unknown method")
     if (cpp) {
         regr_ptr <- make_regr_ptr()
     }
-    if (length(fit_L_control) > 0) {
-        all(names(fit_L_control) %in% names(fit_L_args))
-        for (n in names(fit_L_control)) fit_L_args[[n]] <- fit_L_control[[n]]
+    if (length(fit_control) > 0) {
+        all(names(fit_control) %in% names(fit_args))
+        for (n in names(fit_control)) fit_args[[n]] <- fit_control[[n]]
     }
     n_starts <- 100L
     if (known_L) {
@@ -380,24 +366,24 @@ fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
     for (s in 1:n_starts) {
         guess <- guess_list[[s]]
         if (cpp) {
-            new_op <- optimize_f(guess, fit_aphids0,
+            new_op <- optim(guess, fit_aphids0,
                             known_L = known_L_mat,
                             re = re_df$re, time = re_df$time,
                             fecund = fecund, regr_ptr = regr_ptr,
                             match_lambda = match_lambda,
                             fit_survs = fit_survs,
-                            max_shape = fit_L_args[["max_shape"]],
-                            L_method = fit_L_args[["L_method"]],
-                            L_upper_bound = fit_L_args[["L_upper_bound"]],
-                            L_tol = fit_L_args[["L_tol"]],
-                            L_max_iters = fit_L_args[["L_max_iters"]])
+                            max_shape = fit_args[["max_shape"]],
+                            L_method = fit_args[["L_method"]],
+                            L_upper_bound = fit_args[["L_upper_bound"]],
+                            L_tol = fit_args[["L_tol"]],
+                            L_max_iters = fit_args[["L_max_iters"]])
         } else {
-            new_op <- optimize_f(guess, fit_aphids0R, fecund = fecund,
+            new_op <- optim(guess, fit_aphids0R, fecund = fecund,
                             match_lambda = match_lambda,
                             fit_survs = fit_survs,
                             known_L = known_L, re_df = re_df,
-                            L_upper_bound = fit_L_args[["L_upper_bound"]],
-                            max_shape = fit_L_args[["max_shape"]])
+                            L_upper_bound = fit_args[["L_upper_bound"]],
+                            max_shape = fit_args[["max_shape"]])
         }
         if (new_op$convergence == 0 && new_op$value < val) {
             val <- new_op$value
@@ -454,7 +440,7 @@ fop <- optim(c(2, 8),
              max_f = max(line_s$leslie[,,1]))
 
 
-test_sim <- function(i, .known_L, .match_lambda, .fit_survs, .method = "optim") {
+test_sim <- function(i, .known_L, .match_lambda, .fit_survs) {
     shape <- runif(1, 0.5, 6)
     offset <- runif(1, 0, 1)
     K <- 1800
@@ -507,177 +493,6 @@ test_all_sims <- function(n_sims, .known_L, .match_lambda, .fit_survs) {
     future.seed = TRUE,
     future.packages = c("tidyverse", "gameofclones", "aphidsync"))
 }
-
-
-
-
-# TESTING OTHER OPTIMIZERS -----
-shape <- runif(1, 0.5, 6)
-offset <- runif(1, 0, 1)
-sim_df <- sim_aphids(shape, offset, 1800)
-cycles = TRUE
-known_L = TRUE
-cpp = TRUE
-match_lambda = FALSE
-fit_survs = TRUE
-fit_L_control = list()
-# method = "optim"
-method = "BOBYQA"
-optim_control = list()
-
-
-
-fecund <- max(line_s$leslie[,,1])
-
-re_df <- sim_df |>
-    arrange(time) |>
-    mutate(re = (lead(N) / N)^(1/(lead(time) - time)))
-
-val <- 1e10
-op <- NULL
-regr_ptr <- NULL
-fit_L_args <- list(L_method = "BOBYQA",
-                   L_upper_bound = 1000,
-                   L_tol = 1e-4,
-                   L_max_iters = 1000,
-                   max_shape = 800)
-optim_control <- list()
-optimize_f <- NULL
-if (method == "optim") {
-    optimize_f <- optim
-} else if (method == "BOBYQA") {
-    optimize_f <- nloptr::bobyqa
-} else if (method == "COBYLA") {
-    optimize_f <- nloptr::cobyla
-} else if (method == "NELDERMEAD") {
-    optimize_f <- nloptr::neldermead
-} else if (method == "SBPLX") {
-    optimize_f <- nloptr::sbplx
-} else stop("unknown method")
-if (cpp) {
-    regr_ptr <- make_regr_ptr()
-}
-if (length(fit_L_control) > 0) {
-    stopifnot(all(names(fit_L_control) %in% names(fit_L_args)))
-    for (n in names(fit_L_control)) fit_L_args[[n]] <- fit_L_control[[n]]
-}
-if (method != "optim") {
-    optim_control[["stopval"]] <- 0 # stop minimization at this value
-    optim_control[["xtol_rel"]] <- 1e-8 # stop on small optimization step
-    optim_control[["ftol_rel"]] <- 1e-6 # stop on change times function value
-}
-if (length(optim_control) > 0) {
-    for (n in names(optim_control)) optim_control[[n]] <- optim_control[[n]]
-}
-n_starts <- 100L
-if (known_L) {
-    known_L_mat <- line_s$leslie[,,1]
-} else {
-    known_L_mat <- matrix(0, 0, 0)
-}
-
-guess <- runif(5, 0, c(10, 1, 10, 20, 1))
-
-if (cpp) {
-    args <- list(par = guess, fn = fit_aphids0, control = optim_control,
-                         known_L = known_L_mat,
-                         re = re_df$re, time = re_df$time,
-                         fecund = fecund, regr_ptr = regr_ptr,
-                         match_lambda = match_lambda,
-                         fit_survs = fit_survs,
-                         max_shape = fit_L_args[["max_shape"]],
-                         L_method = fit_L_args[["L_method"]],
-                         L_upper_bound = fit_L_args[["L_upper_bound"]],
-                         L_tol = fit_L_args[["L_tol"]],
-                         L_max_iters = fit_L_args[["L_max_iters"]])
-} else {
-    args <- list(par = guess, fn = fit_aphids0R,
-                 control = optim_control,
-                 fecund = fecund,
-                 match_lambda = match_lambda,
-                 fit_survs = fit_survs,
-                 known_L = known_L, re_df = re_df,
-                 L_upper_bound = fit_L_args[["L_upper_bound"]],
-                 max_shape = fit_L_args[["max_shape"]])
-}
-if (method != "optim") {
-    args[["x0"]] <- args[["par"]]
-    args[["par"]] <- NULL
-    args[["lower"]] <- c(0, 0, 1e-10, 1e-10, 0)[1:length(guess)]
-    args[["upper"]] <- c(fit_L_args[["max_shape"]], 1, 100, 100, 1)[1:length(guess)]
-}
-
-# args[["lower"]] <- c(0, 0, 1e-10, 1e-10, 0)[1:length(guess)]
-# args[["upper"]] <- c(fit_L_args[["max_shape"]], 1, 100, 100, 1)[1:length(guess)]
-args[["lower"]] <- NULL
-args[["upper"]] <- NULL
-args[["control"]] <- list()
-args[["control"]][["stopval"]] <- 0 # stop minimization at this value
-args[["control"]][["xtol_rel"]] <- 1e-8 # stop on small optimization step
-# args[["control"]][["ftol_rel"]] <- 1e-6 # stop on change times function value
-args[["control"]][["ftol_abs"]] <- 0
-new_op <- do.call(nloptr::sbplx, args)
-new_op
-
-
-fit_aphids0(pars = new_op[["par"]],
-known_L = known_L_mat,
-re = re_df$re, time = re_df$time,
-fecund = fecund, regr_ptr = regr_ptr,
-match_lambda = match_lambda,
-fit_survs = fit_survs,
-max_shape = fit_L_args[["max_shape"]],
-L_method = fit_L_args[["L_method"]],
-L_upper_bound = fit_L_args[["L_upper_bound"]],
-L_tol = fit_L_args[["L_tol"]],
-L_max_iters = fit_L_args[["L_max_iters"]])
-
-
-args2 <- args
-args2[["par"]] <- args2[["x0"]]
-args2[["x0"]] <- NULL
-args2[["lower"]] <- NULL
-args2[["upper"]] <- NULL
-args2[["control"]] <- NULL
-new_op2 <- do.call(optim, args2)
-
-
-new_op <- do.call(optimize_f, args)
-
-new_op
-
-
-
-# $par
-# [1]  1.1188251  0.9094286 30.4121541 33.6112852  0.4278546
-#
-# $value
-# [1] 1.221916e-07
-#
-# $counts
-# function gradient
-# 462       NA
-#
-# $convergence
-# [1] 0
-#
-# $message
-# NULL
-
-# if (new_op$convergence == 0 && new_op$value < val) {
-#     val <- new_op$value
-#     op <- new_op
-# }
-# if (new_op$convergence == 0 && !is.null(op) && new_op$value == val) {
-#     if (!isTRUE(all.equal(op$par, new_op$par))) {
-#         # This triggers a specific error in `test_sim`:
-#         return("multiple models")
-#     }
-# }
-
-
-
-
 
 
 
@@ -751,49 +566,16 @@ if (overwrite || ! file.exists("_scripts/unknown_fits_df.rds")) {
                fit_survs = factor(fit_survs, levels = c(TRUE, FALSE),
                                   labels = c("fit_survs", "survs=1")))
     t1 <- Sys.time()
-    # write_rds(unknown_fits_df, "_scripts/unknown_fits_df.rds")
+    write_rds(unknown_fits_df, "_scripts/unknown_fits_df.rds")
     print(t1 - t0); rm(t0, t1)
 } else unknown_fits_df <- read_rds("_scripts/unknown_fits_df.rds")
 
 
-unknown_fits_df0 <- read_rds("_scripts/unknown_fits_df.rds")
+
 
 
 
 # LEFT OFF HERE ----
-
-
-bind_rows(unknown_fits_df |> mutate(logit = FALSE),
-          unknown_fits_df0 |> mutate(logit = TRUE)) |>
-    mutate(logit = factor(logit)) |>
-    split(~ logit + match_lambda + fit_survs + rep, drop = TRUE) |>
-    map_dfr(\(d) {
-        sh <- c(d$obs[d$param == "shape"], d$fit[d$param == "shape"])
-        of <- c(d$obs[d$param == "offset"], d$fit[d$param == "offset"])
-        d |>
-            add_row(obs = c(width99(sh[1], of[1]), p_repro(sh[1], of[1])),
-                    fit = c(width99(sh[2], of[2]), p_repro(sh[2], of[2])),
-                    param = c("width99", "p_repro"),
-                    logit = d$logit[1:2],
-                    rep = d$rep[1:2],
-                    match_lambda = d$match_lambda[1:2],
-                    fit_survs = d$fit_survs[1:2])
-    }) |>
-    mutate(param = factor(param, levels = c("shape", "offset", "wshape",
-                                            "wscale", "spar", "width99",
-                                            "p_repro"))) |>
-    group_by(logit, param, match_lambda, fit_survs) |>
-    summarize(ss = mean(abs(obs - fit)), .groups = "drop") |>
-    mutate(id = paste(match_lambda, fit_survs) |> factor()) |>
-    ggplot(aes(ss, id, color = id)) +
-    geom_vline(xintercept = 0, linewidth = 0.5, color = "gray70") +
-    geom_segment(aes(xend  = 0, yend = id), linewidth = 1) +
-    geom_point(aes(shape = logit), size = 4) +
-    facet_wrap(~ param, scales = "free_x") +
-    scale_color_viridis_d(option = "magma", begin = 0.1, end = 0.9, guide = "none") +
-    scale_shape_manual(values = c(1, 6)) +
-    xlab("mean(| obs - fit |)")  +
-    ylab("Method")
 
 
 
