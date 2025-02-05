@@ -24,3 +24,5 @@ rsconnect/
 *.pdf
 *.png
 *.rds
+
+_figures/*

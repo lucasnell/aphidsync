@@ -7,5 +7,6 @@
 ^Meta$
 ^LICENSE\.md$
 ^_scripts$
+^_figures$
 ^.*\.rds$
 ^data-raw$
