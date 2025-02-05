@@ -20,14 +20,6 @@ constexpr double REAL_K = 1800;
 
 
 
-inline double logit_cpp(const double& p) {
-    return std::log(p / (1-p));
-}
-
-inline double inv_logit_cpp(const double& a) {;
-    return 1 / (1 + std::exp(-a));
-}
-
 
 
 

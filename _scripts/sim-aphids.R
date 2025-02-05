@@ -156,9 +156,6 @@ fit_aphids0R <- function(pars, known_L, re_df, fecund, match_lambda, fit_survs,
 
     .K <- 1800
 
-    pars[2] <- inv_logit(pars[2])
-    if (length(pars) >= 5) pars[5] <- inv_logit(pars[5])
-
     if (any(pars < 0) || pars[2] > 1) return(1e10)
     .shape <- pars[[1]]
     .offset <- pars[[2]]
@@ -368,8 +365,6 @@ fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
     }
     for (s in 1:n_starts) {
         guess <- guess_list[[s]]
-        guess[[2]] <- logit(guess[[2]])
-        if (!known_L && fit_survs) guess[[5]] <- logit(guess[[5]])
         if (cpp) {
             new_op <- optim(guess, fit_aphids0,
                             known_L = known_L_mat,
@@ -407,9 +402,6 @@ fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
 
     pars <- op$par
     names(pars) <- c("shape", "offset", "wshape", "wscale", "spar")[1:length(op$par)]
-
-    pars[2] <- inv_logit(pars[2])
-    if (!known_L && fit_survs) pars[5] <- inv_logit(pars[5])
 
     return(pars)
 
@@ -670,23 +662,6 @@ unknown_hist[["wscale"]]
 unknown_hist[["spar"]]
 
 
-
-unknown_repro99 <- map(1:2, \(j) {
-    f <- list(width99, p_repro)[[j]]
-    st <- c("99th quartile width", "Proportion reproducing")[[j]]
-    unknown_fits_df |>
-        filter(param %in% c("shape", "offset")) |>
-        pivot_wider(names_from = "param", values_from = c(obs, fit)) |>
-        mutate(obs = f(obs_shape, obs_offset),
-               fit = f(fit_shape, fit_offset)) |>
-        ggplot(aes(obs, fit)) +
-        geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
-        geom_point() +
-        facet_wrap(~ match_lambda + fit_survs, nrow = 2, scales = "free_y") +
-        ggtitle(st) +
-        scale_y_continuous() +
-        theme(plot.title = element_text(size = 16, hjust = 0.5))
-})
 
 
 
