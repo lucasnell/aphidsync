@@ -43,44 +43,19 @@ line_s <- clonal_line("susceptible",
 # avoids weird rounding issue when `p_instar_smooth` = 0:
 line_s$density_0 <- line_s$density_0 / sum(line_s$density_0) * 32
 
-# # Resistant line: high resistance, low population growth rate
-# line_r <- clonal_line("resistant",
-#                       density_0 = 32,
-#                       resistant = TRUE,
-#                       surv_paras = 0.57,
-#                       surv_juv_apterous = "low",
-#                       surv_adult_apterous = "low",
-#                       repro_apterous = "low",
-#                       p_instar_smooth = 0)
-# for(i in 1:3) line_r$leslie[1,,i] <- 0.8 * line_r$leslie[1,,i]
+# Resistant line: high resistance, low population growth rate
+line_r <- clonal_line("resistant",
+                      density_0 = 32,
+                      resistant = TRUE,
+                      surv_paras = 0.57,
+                      surv_juv_apterous = "low",
+                      surv_adult_apterous = "low",
+                      repro_apterous = "low",
+                      p_instar_smooth = 0)
+for(i in 1:3) line_r$leslie[1,,i] <- 0.8 * line_r$leslie[1,,i]
 
 
 
-beta_startsR <- function(shape, offset, total_aphids0, compartments = 29L) {
-
-    stopifnot(shape > 0)
-    stopifnot(offset >= 0 && offset <= 1)
-    stopifnot(compartments > 0 && total_aphids0 > 0)
-    stopifnot(compartments == round(compartments))
-    stopifnot(total_aphids0 == round(total_aphids0))
-    times <- seq(0, 1, length.out = round(compartments + 1)) + offset
-    correct <- \(x, f) ifelse(times > 1, f(x, 1), x)
-    pbeta_vals <- pbeta(correct(times, `-`), shape1 = shape, shape2 = shape) |>
-        correct(`+`)
-    aphids0 <- total_aphids0 * diff(pbeta_vals)
-    if(round(sum(aphids0)) != round(total_aphids0)){
-        warning(paste("beta_startsR magnitude error (",
-                      round(sum(aphids0)) - round(total_aphids0), ", shape = ",
-                      round(shape, digits = 2), ", offset = ",
-                      round(offset, digits = 2), sep = ''), immediate. = TRUE)
-    }
-    if(round(length(aphids0)) != round(compartments)){
-        warning(paste("beta_startsR length error, shape = ",
-                      round(shape, digits = 2), ", offset = ",
-                      offset, sep=''), immediate. = TRUE)
-    }
-    return(aphids0)
-}
 
 
 
@@ -141,6 +116,29 @@ sim_aphids <- function(.shape, .offset, .K, sample_filter = FALSE) {
 
 
 
+fit_LR <- function(pars, max_f, fit_survs) {
+    stopifnot(length(pars) >= 4)
+    if (any(pars[3:4] == 0)) return(1e10)
+    if (fit_survs && length(pars) < 5) stop("fit_survs && length(pars) < 5")
+    if (pars[5] > 1) return(1e10)
+    n_stages <- 29L
+    adult_stage <- 9L # first adult stage
+    # Setup starting leslie matrix with only survivals = 1 and with
+    # fecundities summing to 1. Lambda is also 1.
+    L <- make_L1(pars[[3]], pars[[4]])
+    if (fit_survs) {
+        stages0 <- -(n_stages-2L):0
+        L[row(L) - col(L) == 1] <- 1 - pars[[5]] / sqrt(1 + stages0^2)
+    }
+
+    x <- max_f / max(L[1, adult_stage:n_stages])
+
+    L[1, adult_stage:n_stages] <- L[1, adult_stage:n_stages] * x
+
+    return(L)
+}
+
+
 
 
 
@@ -149,8 +147,8 @@ sim_aphids <- function(.shape, .offset, .K, sample_filter = FALSE) {
 # Use within optim to find shape parameters that minimize the differences
 # between observed and predicted Re values.
 #
-fit_aphids0R <- function(pars, known_L, re_df, fecund, match_lambda, fit_survs,
-                         .plot = FALSE, L_upper_bound = 1000, max_shape = 800) {
+fit_aphids0R <- function(pars, known_L_mat, re_df, max_f, fit_survs,
+                         max_shape = 800) {
 
     # pars <- c(533.764, 393.973)
 
@@ -164,49 +162,14 @@ fit_aphids0R <- function(pars, known_L, re_df, fecund, match_lambda, fit_survs,
 
     aphids0 <- beta_starts(.shape, .offset, total_aphids0 = 32)
 
+    known_L <- is.matrix(known_L_mat) && identical(dim(known_L_mat), c(29L,29L))
+
     if (known_L) {
-        L <- line_s$leslie[,,1]
+        L <- known_L_mat
     } else {
-        stopifnot(length(pars) >= 4)
-        if (any(pars[3:4] == 0)) return(1e10)
-        if (fit_survs && length(pars) < 5) stop("fit_survs && length(pars) < 5")
-        if (pars[5] > 1) return(1e10)
-        n_stages <- 29L
-        adult_stage <- 9L # first adult stage
-        # Setup starting leslie matrix with only survivals = 1 and with
-        # fecundities summing to 1. Lambda is also 1.
-        L <- make_L1(pars[[3]], pars[[4]])
-        if (fit_survs) {
-            stages0 <- -(n_stages-2L):0
-            L[row(L) - col(L) == 1] <- 1 - pars[[5]] / sqrt(1 + stages0^2)
-        }
-
-        if (match_lambda) {
-
-            lambda <- fecund
-
-            # If inputs exceed bounds of regression used to fit L, then fit
-            # using an optimizer (optimizing is ~500x slower)
-            if (pars[[3]] > 5 || pars[[4]] > 20 || lambda > 1.6 || lambda < 1.05) {
-                L_op <- optimize(\(x) {
-                    Lx <- L
-                    Lx[1, 9:29] <- Lx[1, 9:29] * x
-                    lambda1 <- max(abs(eigen(Lx, only.values = TRUE)[["values"]]))
-                    return(abs(lambda1 - lambda))
-                }, c(0, L_upper_bound))
-                x <- L_op$minimum
-            } else {
-                x <- calc_L(pars[[3]], pars[[4]], lambda)[1,1]
-            }
-
-        } else {
-
-            x <- fecund / max(L[1, adult_stage:n_stages])
-
-        }
-
-        L[1, adult_stage:n_stages] <- L[1, adult_stage:n_stages] * x
-
+        L <- fit_LR(pars, max_f, fit_survs)
+        # `L` is 1e10 if something went wrong in fit_LR
+        if (length(L) == 1) return(L)
     }
 
     # Extrapolate through time:
@@ -221,14 +184,6 @@ fit_aphids0R <- function(pars, known_L, re_df, fecund, match_lambda, fit_survs,
 
     sumNvec <- apply(Nmat, 1, sum)
     re_pred <- (lead(sumNvec) / sumNvec)[(re_df$time + 1L)]
-
-    if (.plot) {
-        plot(re_pred, ylim = c(0, max(c(re_pred, re_df$re), na.rm = TRUE)),
-             type = "l", ylab = "Re predicted (black) and observed (red)",
-             xlab = "time", lwd = 2,
-             main = sprintf("shape = %.4f, offset = %.4f", .shape, .offset))
-        lines(re_df$re, col = "red", lwd = 2)
-    }
 
     sae <- sum(abs(re_pred - re_df$re), na.rm = TRUE)
     if (is.na(sae) | sae > 1e10) sae <- 1e10
@@ -247,16 +202,11 @@ fit_aphids0R <- function(pars, known_L, re_df, fecund, match_lambda, fit_survs,
 # Fit the two shape parameters for a set of simulations.
 # NOTE: This version doesn't allow for multiple lines (yet).
 #
-fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
-                     match_lambda = FALSE, fit_survs = TRUE,
-                     fit_control = list()) {
+fit_sims <- function(sim_df, known_L_mat,
+                     fit_survs = TRUE, cpp = TRUE,
+                     max_shape = 800, cycles = TRUE) {
 
     stopifnot(length(unique(sim_df$line)) == 1L)
-
-    if (length(fit_control) > 0) {
-        stopifnot(is.list(fit_control))
-        stopifnot(!is.null(names(fit_control)) && all(names(fit_control) != ""))
-    }
 
     if (nrow(sim_df) < 3L) return("low rows") # special meaning in `test_sim`
 
@@ -273,12 +223,8 @@ fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
     # # If you want to test known fecundities:
     # # leslie[1, adult_stage:n_stages] <- line_s$leslie[1, adult_stage:n_stages,1]
 
-    # `fecund` parameter depends on whether we're trying to match Leslie matrix
-    # lambda or max fecundity
-    lambda <- max(abs(eigen(line_s$leslie[,,1], only.values = TRUE)[["values"]]))
-    if (match_lambda) {
-        fecund <- lambda
-    } else fecund <- max(line_s$leslie[,,1])
+    # `max_f` parameter is max fecundity
+    max_f <- max(line_s$leslie[,,1])
 
 
     re_df <- sim_df |>
@@ -322,25 +268,11 @@ fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
     # Fit across multiple starting offsets, then choose best-fitting one:
     val <- 1e10
     op <- NULL
-    regr_ptr <- NULL
-    fit_args <- list(L_method = "BOBYQA",
-                     L_upper_bound = 1000,
-                     L_tol = 1e-4,
-                     L_max_iters = 1000,
-                     max_shape = 800)
-    if (cpp) {
-        regr_ptr <- make_regr_ptr()
-    }
-    if (length(fit_control) > 0) {
-        all(names(fit_control) %in% names(fit_args))
-        for (n in names(fit_control)) fit_args[[n]] <- fit_control[[n]]
-    }
     n_starts <- 100L
+    known_L <- is.matrix(known_L_mat) && identical(dim(known_L_mat), c(29L,29L))
     if (known_L) {
-        known_L_mat <- line_s$leslie[,,1]
         guess_list <- lapply(1:n_starts, \(i) runif(2, 0, c(10, 1)))
     } else {
-        known_L_mat <- matrix(0, 0, 0)
         if (fit_survs) {
             guess_list <- lapply(1:n_starts, \(i) runif(5, 0, c(10, 1, 10, 20, 1)))
         } else {
@@ -367,23 +299,16 @@ fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
         guess <- guess_list[[s]]
         if (cpp) {
             new_op <- optim(guess, fit_aphids0,
-                            known_L = known_L_mat,
+                            known_L_mat = known_L_mat,
                             re = re_df$re, time = re_df$time,
-                            fecund = fecund, regr_ptr = regr_ptr,
-                            match_lambda = match_lambda,
+                            max_f = max_f,
                             fit_survs = fit_survs,
-                            max_shape = fit_args[["max_shape"]],
-                            L_method = fit_args[["L_method"]],
-                            L_upper_bound = fit_args[["L_upper_bound"]],
-                            L_tol = fit_args[["L_tol"]],
-                            L_max_iters = fit_args[["L_max_iters"]])
+                            max_shape = max_shape)
         } else {
-            new_op <- optim(guess, fit_aphids0R, fecund = fecund,
-                            match_lambda = match_lambda,
+            new_op <- optim(guess, fit_aphids0R, max_f = max_f,
                             fit_survs = fit_survs,
-                            known_L = known_L, re_df = re_df,
-                            L_upper_bound = fit_args[["L_upper_bound"]],
-                            max_shape = fit_args[["max_shape"]])
+                            known_L_mat = known_L_mat, re_df = re_df,
+                            max_shape = max_shape)
         }
         if (new_op$convergence == 0 && new_op$value < val) {
             val <- new_op$value
@@ -396,7 +321,6 @@ fit_sims <- function(sim_df, cycles = TRUE, known_L = TRUE, cpp = TRUE,
             }
         }
     }
-
 
     if (is.null(op)) return("no converged") # specific meaning in `test_sim`
 
@@ -462,13 +386,12 @@ fop <- optim(c(2, 8),
              max_f = max(line_s$leslie[,,1]))
 
 
-test_sim <- function(i, .known_L, .match_lambda, .fit_survs) {
+test_sim <- function(i, .known_L_mat, .fit_survs) {
     shape <- runif(1, 0.5, 6)
     offset <- runif(1, 0, 1)
     K <- 1800
     sim_df <- sim_aphids(shape, offset, K)
-    fits <- fit_sims(sim_df, known_L = .known_L, match_lambda = .match_lambda,
-                     fit_survs = .fit_survs)
+    fits <- fit_sims(sim_df, known_L_mat = .known_L_mat, fit_survs = .fit_survs)
     if (length(fits) == 1) {
         if (fits == "multiple models") {
             stop(sprintf(paste("Multiple equally well-fitted models with",
@@ -496,6 +419,7 @@ test_sim <- function(i, .known_L, .match_lambda, .fit_survs) {
         stop(sprintf("any(is.na(fits))\n shape = %s\n offset = %s",
                      shape, offset))
     }
+    .known_L <- is.matrix(.known_L_mat) && identical(dim(.known_L_mat), c(29L,29L))
     .obs_vars <- c(shape, offset)
     if (!.known_L) .obs_vars <- c(.obs_vars, fop$par)
     if (.fit_survs) .obs_vars <- c(.obs_vars, 0.8329342)
@@ -505,10 +429,10 @@ test_sim <- function(i, .known_L, .match_lambda, .fit_survs) {
            rep = i) |>
         mutate(param = factor(param, levels = param))
 }
-test_all_sims <- function(n_sims, .known_L, .match_lambda, .fit_survs) {
+test_all_sims <- function(n_sims, .known_L_mat, .fit_survs) {
     p <- progressor(steps = n_sims)
     future_lapply(1:n_sims, function(i, ...) {
-        ifits <- test_sim(i, .known_L, .match_lambda, .fit_survs)
+        ifits <- test_sim(i, .known_L_mat, .fit_survs)
         p()
         return(ifits)
     },
@@ -521,14 +445,14 @@ test_all_sims <- function(n_sims, .known_L, .match_lambda, .fit_survs) {
 
 # simulations ----
 
-overwrite <- FALSE
+overwrite <- TRUE
 
-# Takes 25 sec
+# Takes 52 sec
 if (overwrite || ! file.exists("_scripts/known_fit_df.rds")) {
     t0 <- Sys.time()
     set.seed(1740563097)
     # Note that .match_lambda par doesn't matter here.
-    known_fit_df <- test_all_sims(100L, .known_L = TRUE, .match_lambda = TRUE,
+    known_fit_df <- test_all_sims(100L, .known_L_mat = line_s$leslie[,,1],
                                   .fit_survs = FALSE) |>
         do.call(what = bind_rows)
     cat("Finished #1!\n")
@@ -538,24 +462,19 @@ if (overwrite || ! file.exists("_scripts/known_fit_df.rds")) {
 } else known_fit_df <- read_rds("_scripts/known_fit_df.rds")
 
 
-# Takes ~22 min
+# Takes ~4 min
 if (overwrite || ! file.exists("_scripts/unknown_fits_df.rds")) {
     t0 <- Sys.time()
     set.seed(1188441535)
-    unknown_fits_df <- crossing(.ml = c(TRUE, FALSE),
-                                .fs = c(TRUE, FALSE)) |>
-        pmap(\(.ml, .fs) {
-            X <- test_all_sims(100L, .known_L = FALSE, .match_lambda = .ml,
-                               .fit_survs = .fs) |>
+    unknown_fits_df <- c(TRUE, FALSE) |>
+        map_dfr(\(.fs) {
+            X <- test_all_sims(100L, .known_L_mat = matrix(), .fit_survs = .fs) |>
                 do.call(what = bind_rows) |>
-                mutate(match_lambda = .ml, fit_survs = .fs)
-            cat(sprintf("Finished match_lambda=%s, fit_survs=%s!\n", .ml, .fs))
+                mutate(fit_survs = .fs)
+            cat(sprintf("Finished fit_survs=%s!\n", .fs))
             return(X)
         }) |>
-        do.call(what = bind_rows) |>
-        mutate(match_lambda = factor(match_lambda, levels = c(TRUE, FALSE),
-                                     labels = c("lambda", "max_f")),
-               fit_survs = factor(fit_survs, levels = c(TRUE, FALSE),
+        mutate(fit_survs = factor(fit_survs, levels = c(TRUE, FALSE),
                                   labels = c("fit_survs", "survs=1")))
     t1 <- Sys.time()
     write_rds(unknown_fits_df, "_scripts/unknown_fits_df.rds")
@@ -569,6 +488,17 @@ if (overwrite || ! file.exists("_scripts/unknown_fits_df.rds")) {
 
 
 # plots ----
+
+
+known_fit_df |>
+    ggplot(aes(obs, fit)) +
+    geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
+    geom_point() +
+    # geom_point() +
+    facet_wrap(~ param, nrow = 1, scales = "free") +
+    ggtitle("with known Leslie matrix") +
+    # coord_equal() +
+    scale_y_continuous()
 
 
 
@@ -594,7 +524,7 @@ pretty_params <- function(uglies, nc = NULL) {
 
 
 unknown_ss_p <- unknown_fits_df |>
-    split(~ match_lambda + fit_survs + rep) |>
+    split(~ fit_survs + rep) |>
     map_dfr(\(d) {
         sh <- c(d$obs[d$param == "shape"], d$fit[d$param == "shape"])
         of <- c(d$obs[d$param == "offset"], d$fit[d$param == "offset"])
@@ -603,7 +533,6 @@ unknown_ss_p <- unknown_fits_df |>
                     fit = c(width99(sh[2], of[2]), p_repro(sh[2], of[2])),
                     param = c("width99", "p_repro"),
                     rep = d$rep[1:2],
-                    match_lambda = d$match_lambda[1:2],
                     fit_survs = d$fit_survs[1:2])
     }) |>
     mutate(param = factor(param, levels = c("shape", "offset", "wshape",
@@ -613,12 +542,11 @@ unknown_ss_p <- unknown_fits_df |>
                                                    "wscale", "spar", "width99",
                                                    "p_repro"),
                                                  nc = 30L))) |>
-    group_by(param, match_lambda, fit_survs) |>
+    group_by(param, fit_survs) |>
     summarize(ss = mean(abs(obs - fit)), .groups = "drop") |>
-    mutate(id = paste(match_lambda, fit_survs) |> factor()) |>
-    ggplot(aes(ss, id, color = id)) +
+    ggplot(aes(ss, fit_survs, color = fit_survs)) +
     geom_vline(xintercept = 0, linewidth = 0.5, color = "gray70") +
-    geom_segment(aes(xend  = 0, yend = id), linewidth = 1) +
+    geom_segment(aes(xend  = 0, yend = fit_survs), linewidth = 1) +
     geom_point(size = 4) +
     facet_wrap(~ param, scales = "free_x") +
     scale_color_viridis_d(option = "magma", begin = 0.1, end = 0.9, guide = "none") +
@@ -647,7 +575,7 @@ unknown11 <- c(levels(unknown_fits_df$param)[1:2], "width99", "p_repro") |>
             ggplot(aes(obs, fit)) +
             geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
             geom_point() +
-            facet_wrap(~ match_lambda + fit_survs, nrow = 2, scales = "free_y") +
+            facet_wrap(~ fit_survs, nrow = 1, scales = "free_y") +
             ggtitle(param_map[[.p]]) +
             theme(plot.title = element_text(size = 16, hjust = 0.5))
     })
@@ -663,7 +591,7 @@ unknown_hist <- levels(unknown_fits_df$param)[3:5] |>
             geom_histogram(aes(x = fit), bins = 25, fill = "dodgerblue3") +
             geom_vline(data = tibble(obs = .obs),
                        aes(xintercept = obs), linetype = 2, color = "firebrick1") +
-            facet_wrap(~ match_lambda + fit_survs, nrow = 2, scales = "free_y") +
+            facet_wrap(~ fit_survs, nrow = 2, scales = "free_y") +
             ggtitle(param_map[[.p]]) +
             scale_y_continuous() +
             theme(plot.title = element_text(size = 16, hjust = 0.5))
@@ -691,13 +619,3 @@ levels(unknown_fits_df$param)
 
 
 
-
-known_fit_df |>
-    ggplot(aes(obs, fit)) +
-    geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
-    geom_point() +
-    # geom_point() +
-    facet_wrap(~ param, nrow = 1, scales = "free") +
-    ggtitle("with known Leslie matrix") +
-    # coord_equal() +
-    scale_y_continuous()
