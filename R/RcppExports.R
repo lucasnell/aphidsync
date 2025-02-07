@@ -3,6 +3,12 @@
 
 #' @export
 #' @noRd
+known_fit_aphids0 <- function(pars, L, re, time, max_shape) {
+    .Call(`_aphidsync_known_fit_aphids0`, pars, L, re, time, max_shape)
+}
+
+#' @export
+#' @noRd
 beta_starts <- function(shape, offset, total_aphids0, compartments = 29L) {
     .Call(`_aphidsync_beta_starts`, shape, offset, total_aphids0, compartments)
 }
@@ -15,7 +21,7 @@ make_L1 <- function(shape, scale) {
 
 #' @export
 #' @noRd
-fit_aphids0 <- function(pars, known_L_mat, re, time, max_f, fit_survs, max_shape = 800) {
-    .Call(`_aphidsync_fit_aphids0`, pars, known_L_mat, re, time, max_f, fit_survs, max_shape)
+unknown_fit_aphids0 <- function(pars, re, time, max_f, fit_survs, max_shape) {
+    .Call(`_aphidsync_unknown_fit_aphids0`, pars, re, time, max_f, fit_survs, max_shape)
 }
 
