@@ -14,15 +14,13 @@ handlers(global = TRUE)
 handlers("progress")
 
 
-# ggplot2 theme:
-theme_set(theme_classic() %+replace%
-              theme(strip.background = element_blank(),
-                    strip.text = element_text(size = 11),
-                    legend.background = element_blank(),
-                    plot.title = element_text(size = 14, hjust = 0)))
 
 if (interactive() && file.exists(".Rprofile")) source(".Rprofile")
 
+
+# Files created here to store simulation data:
+rds_files <- list(known = "_data/known_fit_df.rds",
+                  vary_fs = "_data/vary_fs_fit_df.rds")
 
 
 col_pal <- c(resistant = viridis(100)[50],
@@ -43,33 +41,30 @@ line_s <- clonal_line("susceptible",
 # avoids weird rounding issue when `p_instar_smooth` = 0:
 line_s$density_0 <- line_s$density_0 / sum(line_s$density_0) * 32
 
-# Resistant line: high resistance, low population growth rate
-line_r <- clonal_line("resistant",
-                      density_0 = 32,
-                      resistant = TRUE,
-                      surv_paras = 0.57,
-                      surv_juv_apterous = "low",
-                      surv_adult_apterous = "low",
-                      repro_apterous = "low",
-                      p_instar_smooth = 0)
-for(i in 1:3) line_r$leslie[1,,i] <- 0.8 * line_r$leslie[1,,i]
+# # Resistant line: high resistance, low population growth rate
+# line_r <- clonal_line("resistant",
+#                       density_0 = 32,
+#                       resistant = TRUE,
+#                       surv_paras = 0.57,
+#                       surv_juv_apterous = "low",
+#                       surv_adult_apterous = "low",
+#                       repro_apterous = "low",
+#                       p_instar_smooth = 0)
+# for(i in 1:3) line_r$leslie[1,,i] <- 0.8 * line_r$leslie[1,,i]
 
 
 
 
 
+sim_aphids <- function(.shape, .offset, .K, .line,
+                       sample_filter = FALSE,
+                       sd_error = 0) {
 
+    .line$density_0[,1] <- beta_starts(.shape, .offset, sum(.line$density_0),
+                                       nrow(.line$density_0))
+    .line$density_0[,2] <- 0.0
 
-
-
-sim_aphids <- function(.shape, .offset, .K, sample_filter = FALSE) {
-
-    line <- line_s
-    line$density_0[,1] <- beta_starts(.shape, .offset, sum(line$density_0),
-                                      nrow(line$density_0))
-    line$density_0[,2] <- 0.0
-
-    sim_df <- gameofclones:::sim_gameofclones_full(line,
+    sim_df <- gameofclones:::sim_gameofclones_full(.line,
                                                    n_fields = 1,
                                                    # n_plants = 16,
                                                    n_plants = 1,
@@ -110,89 +105,13 @@ sim_aphids <- function(.shape, .offset, .K, sample_filter = FALSE) {
             filter(time %% 7L == 0 | time %% 7L == 3L)
     }
 
+    if (sd_error > 0) {
+        sim_df$N <- sim_df$N * exp(rnorm(nrow(sim_df), 0, sd_error))
+    }
+
     return(sim_df)
 
 }
-
-
-
-fit_LR <- function(pars, max_f, fit_survs) {
-    stopifnot(length(pars) >= 4)
-    if (any(pars[3:4] == 0)) return(1e10)
-    if (fit_survs && length(pars) < 5) stop("fit_survs && length(pars) < 5")
-    if (pars[5] > 1) return(1e10)
-    n_stages <- 29L
-    adult_stage <- 9L # first adult stage
-    # Setup starting leslie matrix with only survivals = 1 and with
-    # fecundities summing to 1. Lambda is also 1.
-    L <- make_L1(pars[[3]], pars[[4]])
-    if (fit_survs) {
-        stages0 <- -(n_stages-2L):0
-        L[row(L) - col(L) == 1] <- 1 - pars[[5]] / sqrt(1 + stages0^2)
-    }
-
-    x <- max_f / max(L[1, adult_stage:n_stages])
-
-    L[1, adult_stage:n_stages] <- L[1, adult_stage:n_stages] * x
-
-    return(L)
-}
-
-
-
-
-
-
-#
-# Use within optim to find shape parameters that minimize the differences
-# between observed and predicted Re values.
-#
-fit_aphids0R <- function(pars, known_L_mat, re_df, max_f, fit_survs,
-                         max_shape = 800) {
-
-    # pars <- c(533.764, 393.973)
-
-    .K <- 1800
-
-    if (any(pars < 0) || pars[2] > 1) return(1e10)
-    .shape <- pars[[1]]
-    .offset <- pars[[2]]
-    # .K <- pars[[3]]
-    if (.shape > max_shape) return(1e10)
-
-    aphids0 <- beta_starts(.shape, .offset, total_aphids0 = 32)
-
-    known_L <- is.matrix(known_L_mat) && identical(dim(known_L_mat), c(29L,29L))
-
-    if (known_L) {
-        L <- known_L_mat
-    } else {
-        L <- fit_LR(pars, max_f, fit_survs)
-        # `L` is 1e10 if something went wrong in fit_LR
-        if (length(L) == 1) return(L)
-    }
-
-    # Extrapolate through time:
-    Nmat  <- matrix(NA_real_, nrow = max(re_df$time) + 1, ncol = length(aphids0))
-    Nmat[1, ] <- aphids0
-    for (i in 2:(nrow(Nmat))) {
-        Ni <- t(Nmat[(i-1),,drop=FALSE])
-        z <- sum(Ni)
-        S <- 1 / (1 + z / .K)
-        Nmat[i, ] <- S * t(L %*% Ni)
-    }
-
-    sumNvec <- apply(Nmat, 1, sum)
-    re_pred <- (lead(sumNvec) / sumNvec)[(re_df$time + 1L)]
-
-    sae <- sum(abs(re_pred - re_df$re), na.rm = TRUE)
-    if (is.na(sae) | sae > 1e10) sae <- 1e10
-
-    return(sae)
-
-}
-
-
 
 
 
@@ -202,30 +121,11 @@ fit_aphids0R <- function(pars, known_L_mat, re_df, max_f, fit_survs,
 # Fit the two shape parameters for a set of simulations.
 # NOTE: This version doesn't allow for multiple lines (yet).
 #
-fit_sims <- function(sim_df, known_L_mat,
-                     fit_survs = TRUE, cpp = TRUE,
-                     max_shape = 800, cycles = TRUE) {
+fit_sims <- function(sim_df, L, max_shape = 800, cycles = TRUE) {
 
     stopifnot(length(unique(sim_df$line)) == 1L)
 
     if (nrow(sim_df) < 3L) return("low rows") # special meaning in `test_sim`
-
-    # n_stages <- formals(beta_starts)[["compartments"]]
-    # stopifnot(n_stages %in% c(14, 29))
-    # adult_stage <- ifelse(n_stages == 14, 5, 9) # first adult stage
-    #
-    # # Setup starting leslie matrix with only survivals = 1 (without fecundities)
-    # leslie <- matrix(0, n_stages, n_stages)
-    # # survivals (set to 1 for now):
-    # leslie[(row(leslie) - col(leslie) == 1)] <- 1
-    # # fecundities (to be fit):
-    # leslie[1, adult_stage:n_stages] <- 1
-    # # If you want to test known fecundities:
-    # # leslie[1, adult_stage:n_stages] <- line_s$leslie[1, adult_stage:n_stages,1]
-
-    # `max_f` parameter is max fecundity
-    max_f <- max(line_s$leslie[,,1])
-
 
     re_df <- sim_df |>
         arrange(time) |>
@@ -269,16 +169,8 @@ fit_sims <- function(sim_df, known_L_mat,
     val <- 1e10
     op <- NULL
     n_starts <- 100L
-    known_L <- is.matrix(known_L_mat) && identical(dim(known_L_mat), c(29L,29L))
-    if (known_L) {
-        guess_list <- lapply(1:n_starts, \(i) runif(2, 0, c(10, 1)))
-    } else {
-        if (fit_survs) {
-            guess_list <- lapply(1:n_starts, \(i) runif(5, 0, c(10, 1, 10, 20, 1)))
-        } else {
-            guess_list <- lapply(1:n_starts, \(i) runif(4, 0, c(10, 1, 10, 20)))
-        }
-    }
+    guess_list <- lapply(1:n_starts, \(i) runif(3, 0, c(10, 1, 10e3)))
+
     # Choose 10 random reps to have very low and high offset values.
     # This helps with fitting.
     n_hilo <- 10L
@@ -287,29 +179,11 @@ fit_sims <- function(sim_df, known_L_mat,
         guess_list[[i]][2] <- runif(1, 0, 1e-6)
     for (i in off_inds[(n_hilo %/% 2L + 1L):n_hilo])
         guess_list[[i]][2] <- runif(1, 1 - 1e-6, 1)
-    # Similar for survival parameter (if used):
-    if (!known_L && fit_survs) {
-        spar_inds <- sample.int(n_starts, n_hilo)
-        for (i in spar_inds[1:(n_hilo %/% 2L)])
-            guess_list[[i]][5] <- runif(1, 0, 1e-6)
-        for (i in spar_inds[(n_hilo %/% 2L + 1L):n_hilo])
-            guess_list[[i]][5] <- runif(1, 1 - 1e-6, 1)
-    }
     for (s in 1:n_starts) {
         guess <- guess_list[[s]]
-        if (cpp) {
-            new_op <- optim(guess, fit_aphids0,
-                            known_L_mat = known_L_mat,
-                            re = re_df$re, time = re_df$time,
-                            max_f = max_f,
-                            fit_survs = fit_survs,
-                            max_shape = max_shape)
-        } else {
-            new_op <- optim(guess, fit_aphids0R, max_f = max_f,
-                            fit_survs = fit_survs,
-                            known_L_mat = known_L_mat, re_df = re_df,
-                            max_shape = max_shape)
-        }
+        new_op <- optim(guess, known_fit_aphids0,
+                        L = L, re = re_df$re, time = re_df$time,
+                        max_shape = max_shape)
         if (new_op$convergence == 0 && new_op$value < val) {
             val <- new_op$value
             op <- new_op
@@ -325,7 +199,7 @@ fit_sims <- function(sim_df, known_L_mat,
     if (is.null(op)) return("no converged") # specific meaning in `test_sim`
 
     pars <- op$par
-    names(pars) <- c("shape", "offset", "wshape", "wscale", "spar")[1:length(op$par)]
+    names(pars) <- c("shape", "offset", "K")[1:length(op$par)]
 
     return(pars)
 
@@ -333,65 +207,14 @@ fit_sims <- function(sim_df, known_L_mat,
 
 
 
-# Width of 99th quartile (offset ignored):
-width99 <- function(shape, offset) {
-    sapply(shape, \(sh) {
-        q99 <- qbeta(c(0.005, 0.995), sh, sh)
-        return(abs(diff(q99)))
-    })
-}
-# Proportion of population that's reproducing:
-p_repro <- function(shape, offset) {
-    mapply(\(sh, of) {
-        a0 <- beta_starts(sh, of, 1)
-        return(sum(a0[10:29]))
-    }, sh = shape, of = offset)
-}
-
-
-# survivals ----
-
-surv_df <- tibble(surv = line_s$leslie[,,1][row(line_s$leslie[,,1]) -
-                                                col(line_s$leslie[,,1]) == 1],
-                  stage = 1:28,
-                  stage0 = stage - 28L,
-                  surv1 = surv - 1)
-
-# s_mod <- lm(surv1 ~ poly(stage, 2, raw = TRUE) + 0, surv_df)
-# s_mod <- lm(surv ~ lhs, surv_df)
-s_mod <- lm(surv1 ~ 0 + I(1 / sqrt(1 + stage0^2)), surv_df)
-
-surv_df |>
-    ggplot(aes(stage, surv)) +
-    geom_hline(yintercept = c(0, 1), color = "gray70") +
-    geom_line() +
-    geom_line(data = surv_df |>
-                  mutate(surv = predict(s_mod) + 1),
-              color = "dodgerblue", linetype = 2)
-
-
-# What're the "real" values of the Weibull fecundity parameters?
-# fop ----
-fop <- optim(c(2, 8),
-             function(pars, fecunds, max_f, return_fit = FALSE) {
-                 if (any(pars < 0)) return(1e10)
-                 stages <- 0:length(fecunds)
-                 p_distr_vals <- pweibull(stages, shape = pars[1], scale = pars[2])
-                 fit_fecunds <- diff(p_distr_vals) / sum(diff(p_distr_vals))
-                 fit_fecunds <- fit_fecunds * max_f / max(fit_fecunds)
-                 if (return_fit) return(fit_fecunds)
-                 return(sum(abs(fit_fecunds - fecunds), na.rm = TRUE))
-             },
-             fecunds = line_s$leslie[1,9:29,1],
-             max_f = max(line_s$leslie[,,1]))
-
-
-test_sim <- function(i, .known_L_mat, .fit_survs) {
+# Test 1 simulation fit for a single fecundity and survival combination
+test_sim <- function(i, .line, .sd_error) {
     shape <- runif(1, 0.5, 6)
     offset <- runif(1, 0, 1)
-    K <- 1800
-    sim_df <- sim_aphids(shape, offset, K)
-    fits <- fit_sims(sim_df, known_L_mat = .known_L_mat, fit_survs = .fit_survs)
+    K <- runif(1, 1000, 5000)
+    # Simulate `line_s`, but fit using altered `.line`:
+    sim_df <- sim_aphids(shape, offset, K, line_s, sd_error = .sd_error)
+    fits <- fit_sims(sim_df, .line$leslie[,,1])
     if (length(fits) == 1) {
         if (fits == "multiple models") {
             stop(sprintf(paste("Multiple equally well-fitted models with",
@@ -419,25 +242,36 @@ test_sim <- function(i, .known_L_mat, .fit_survs) {
         stop(sprintf("any(is.na(fits))\n shape = %s\n offset = %s",
                      shape, offset))
     }
-    .known_L <- is.matrix(.known_L_mat) && identical(dim(.known_L_mat), c(29L,29L))
-    .obs_vars <- c(shape, offset)
-    if (!.known_L) .obs_vars <- c(.obs_vars, fop$par)
-    if (.fit_survs) .obs_vars <- c(.obs_vars, 0.8329342)
+    .obs_vars <- c(shape, offset, K)
     tibble(obs = .obs_vars,
            fit = unname(fits),
            param = names(fits),
            rep = i) |>
         mutate(param = factor(param, levels = param))
 }
-test_all_sims <- function(n_sims, .known_L_mat, .fit_survs) {
+
+
+# Test all 100 simulation fits for a single fecundity and survival combination
+test_all_sims <- function(n_sims, .surv_x, .fecund_x, .sd_error = 0) {
+    .line <- line_s
+    if (.surv_x != 0 || .fecund_x != 1) {
+        L <- .line$leslie[,,1]
+        survs <- inv_logit(logit(L[row(L) - col(L) == 1]) + .surv_x)
+        L[row(L) - col(L) == 1] <- survs
+        L[1,9:29] <- L[1,9:29] * .fecund_x
+        .line$leslie[,,1] <- L
+    }
     p <- progressor(steps = n_sims)
-    future_lapply(1:n_sims, function(i, ...) {
-        ifits <- test_sim(i, .known_L_mat, .fit_survs)
+    out <- future_lapply(1:n_sims, function(i, ...) {
+        ifits <- test_sim(i, .line, .sd_error)
         p()
         return(ifits)
     },
     future.seed = TRUE,
-    future.packages = c("tidyverse", "gameofclones", "aphidsync"))
+    future.packages = c("tidyverse", "gameofclones", "aphidsync")) |>
+        do.call(what = bind_rows) |>
+        mutate(surv_x = .surv_x, fecund_x = .fecund_x)
+    return(out)
 }
 
 
@@ -445,21 +279,42 @@ test_all_sims <- function(n_sims, .known_L_mat, .fit_survs) {
 
 # simulations ----
 
-overwrite <- TRUE
+overwrite <- FALSE
 
-# Takes 52 sec
-if (overwrite || ! file.exists("_scripts/known_fit_df.rds")) {
+# Takes ~1 min
+if (overwrite || ! file.exists(rds_files$known)) {
     t0 <- Sys.time()
     set.seed(1740563097)
-    # Note that .match_lambda par doesn't matter here.
-    known_fit_df <- test_all_sims(100L, .known_L_mat = line_s$leslie[,,1],
-                                  .fit_survs = FALSE) |>
-        do.call(what = bind_rows)
-    cat("Finished #1!\n")
+    known_fit_df <- test_all_sims(100L, 1, 1) |>
+        select(-surv_x, -fecund_x)
     t1 <- Sys.time()
-    write_rds(known_fit_df, "_scripts/known_fit_df.rds")
+    write_rds(known_fit_df, rds_files$known)
     print(t1 - t0); rm(t0, t1)
-} else known_fit_df <- read_rds("_scripts/known_fit_df.rds")
+} else known_fit_df <- read_rds(rds_files$known)
+
+
+# LEFT OFF ----
+
+
+# Vary fecundities and survivals:
+# Takes 20 min
+if (overwrite || ! file.exists(rds_files$vary_fs)) {
+    t0 <- Sys.time()
+    set.seed(1013619437)
+    vary_fs_fit_df <- crossing(.surv_x = c(-1, 0, 1),
+                               .fecund_x = c(0.8, 1, 1.2)) |>
+        pmap_dfr(\(.surv_x, .fecund_x) {
+            out <- test_all_sims(100L, .surv_x, .fecund_x)
+            cat(sprintf("finished surv_x = %.1f, fecund_x = %.1f\n",
+                        .surv_x, .fecund_x))
+            return(out)
+        })
+    t1 <- Sys.time()
+    write_rds(vary_fs_fit_df, rds_files$vary_fs)
+    print(t1 - t0); rm(t0, t1)
+} else vary_fs_fit_df <- read_rds(rds_files$vary_fs)
+
+
 
 
 
@@ -467,15 +322,53 @@ if (overwrite || ! file.exists("_scripts/known_fit_df.rds")) {
 
 # plots ----
 
-
-known_fit_df |>
-    ggplot(aes(obs, fit)) +
-    geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
-    geom_point() +
-    # geom_point() +
-    facet_wrap(~ param, nrow = 1, scales = "free") +
-    ggtitle("with known Leslie matrix") +
-    # coord_equal() +
-    scale_y_continuous()
+# known_fit_df |>
+#     ggplot(aes(obs, fit)) +
+#     geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
+#     geom_point() +
+#     facet_wrap(~ param, nrow = 1, scales = "free") +
+#     ggtitle("with perfect Leslie")
 
 
+
+vary_fs_fit_ps <- c(levels(vary_fs_fit_df$param), "width99", "p_repro") |>
+    set_names() |>
+    map(\(.p){
+        if (.p %in% levels(vary_fs_fit_df$param)) {
+            d <- vary_fs_fit_df |>
+                filter(param == .p)
+        } else {
+            stopifnot(.p %in% c("width99", "p_repro"))
+            f <- eval(parse(text = .p))
+            d <- vary_fs_fit_df |>
+                filter(param %in% c("shape", "offset")) |>
+                pivot_wider(names_from = "param", values_from = c(obs, fit)) |>
+                mutate(obs = f(obs_shape, obs_offset),
+                       fit = f(fit_shape, fit_offset))
+        }
+        g <- function(x, n) factor(x, levels = sort(unique(x)),
+                                   labels = paste(c("low", "perfect", "high"), n))
+        pm <- list(shape = "Initial Beta shape",
+                   offset = "Initial Beta offset",
+                   K = "Density dependence",
+                   width99 = "Width of 99% quantile",
+                   p_repro = "Proportion of initial aphids reproducing")
+        .m <- min(d$obs, d$fit)
+        p <- d |>
+            mutate(surv_x = g(surv_x, "survival"),
+                   fecund_x = g(fecund_x, "fecundity")) |>
+            ggplot(aes(obs, fit)) +
+            # geom_hline(yintercept = .m, color = "gray70", linewidth = 0.5) +
+            # geom_vline(xintercept = .m, color = "gray70", linewidth = 0.5) +
+            geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
+            geom_point() +
+            facet_wrap(~ surv_x + fecund_x, nrow = 3, scales = "free") +
+            ggtitle(pm[[.p]])
+        return(p)
+    })
+
+vary_fs_fit_ps[["shape"]]
+vary_fs_fit_ps[["offset"]]
+vary_fs_fit_ps[["K"]]
+vary_fs_fit_ps[["width99"]]
+vary_fs_fit_ps[["p_repro"]]

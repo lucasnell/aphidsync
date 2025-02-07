@@ -14,14 +14,10 @@ handlers(global = TRUE)
 handlers("progress")
 
 
-# ggplot2 theme:
-theme_set(theme_classic() %+replace%
-              theme(strip.background = element_blank(),
-                    strip.text = element_text(size = 11),
-                    legend.background = element_blank(),
-                    plot.title = element_text(size = 14, hjust = 0)))
-
 if (interactive() && file.exists(".Rprofile")) source(".Rprofile")
+
+# File created here to store simulation data:
+rds_file <- "_data/unknown_fits_df.rds"
 
 
 
@@ -125,142 +121,32 @@ fit_LR <- function(pars, max_f, fit_survs) {
 
 
 
-
-#
-# Use within optim to find shape parameters that minimize the differences
-# between observed and predicted Re values.
-#
-fit_aphids0R <- function(pars, known_L_mat, re_df, max_f, fit_survs,
-                         max_shape = 800) {
-
-    # pars <- c(533.764, 393.973)
-
-    .K <- 1800
-
-    if (any(pars < 0) || pars[2] > 1) return(1e10)
-    .shape <- pars[[1]]
-    .offset <- pars[[2]]
-    # .K <- pars[[3]]
-    if (.shape > max_shape) return(1e10)
-
-    aphids0 <- beta_starts(.shape, .offset, total_aphids0 = 32)
-
-    known_L <- is.matrix(known_L_mat) && identical(dim(known_L_mat), c(29L,29L))
-
-    if (known_L) {
-        L <- known_L_mat
-    } else {
-        L <- fit_LR(pars, max_f, fit_survs)
-        # `L` is 1e10 if something went wrong in fit_LR
-        if (length(L) == 1) return(L)
-    }
-
-    # Extrapolate through time:
-    Nmat  <- matrix(NA_real_, nrow = max(re_df$time) + 1, ncol = length(aphids0))
-    Nmat[1, ] <- aphids0
-    for (i in 2:(nrow(Nmat))) {
-        Ni <- t(Nmat[(i-1),,drop=FALSE])
-        z <- sum(Ni)
-        S <- 1 / (1 + z / .K)
-        Nmat[i, ] <- S * t(L %*% Ni)
-    }
-
-    sumNvec <- apply(Nmat, 1, sum)
-    re_pred <- (lead(sumNvec) / sumNvec)[(re_df$time + 1L)]
-
-    sae <- sum(abs(re_pred - re_df$re), na.rm = TRUE)
-    if (is.na(sae) | sae > 1e10) sae <- 1e10
-
-    return(sae)
-
-}
-
-
-
-
-
-
-
 #
 # Fit the two shape parameters for a set of simulations.
 # NOTE: This version doesn't allow for multiple lines (yet).
 #
-fit_sims <- function(sim_df, known_L_mat,
-                     fit_survs = TRUE, cpp = TRUE,
-                     max_shape = 800, cycles = TRUE) {
+fit_sims <- function(sim_df, fit_survs = TRUE,
+                     max_shape = 800) {
 
     stopifnot(length(unique(sim_df$line)) == 1L)
 
     if (nrow(sim_df) < 3L) return("low rows") # special meaning in `test_sim`
 
-    # n_stages <- formals(beta_starts)[["compartments"]]
-    # stopifnot(n_stages %in% c(14, 29))
-    # adult_stage <- ifelse(n_stages == 14, 5, 9) # first adult stage
-    #
-    # # Setup starting leslie matrix with only survivals = 1 (without fecundities)
-    # leslie <- matrix(0, n_stages, n_stages)
-    # # survivals (set to 1 for now):
-    # leslie[(row(leslie) - col(leslie) == 1)] <- 1
-    # # fecundities (to be fit):
-    # leslie[1, adult_stage:n_stages] <- 1
-    # # If you want to test known fecundities:
-    # # leslie[1, adult_stage:n_stages] <- line_s$leslie[1, adult_stage:n_stages,1]
-
     # `max_f` parameter is max fecundity
     max_f <- max(line_s$leslie[,,1])
-
 
     re_df <- sim_df |>
         arrange(time) |>
         mutate(re = (lead(N) / N)^(1/(lead(time) - time)))
 
-    # amr_df <- sim_df
-    # if (cycles) {
-    #     amr_df <- amr_df |>
-    #         filter(time %% 29L == 0)
-    # }
-    # amr_df <- amr_df |>
-    #     mutate(amr = (lead(N) / N)^(1/(lead(time) - time))) |>
-    #     filter(!is.na(amr))
-    #
-    #
-    # amr_f <- approxfun(amr_df$time, y = amr_df$amr, yleft = amr_df$amr[1],
-    #                    yright = tail(amr_df$amr, 1))
-    #
-    # amr_pred = amr_f(1:max(re_df$time))
-    #
-    # if (known_L) {
-    #     L <- line_s$leslie[,,1]
-    # } else {
-    #     L_fit_fun <- function(x, .amr) {
-    #         L <- leslie
-    #         L[1, adult_stage:n_stages] <- x[1]
-    #         lam <- max(abs(eigen(L, only.values = TRUE)[["values"]]))
-    #         return(abs(lam - .amr))
-    #     }
-    #     L_op <- optim(1, L_fit_fun, .amr = amr)
-    #
-    #     Lvec <- lapply(amr_pred, \(amr) {
-    #         if (op$convergence != 0) stop("Leslie could not converge")
-    #         L <- leslie
-    #         L[1, adult_stage:n_stages] <- op$par[1]
-    #         return(L)
-    #     })
-    # }
-
-    # Fit across multiple starting offsets, then choose best-fitting one:
+    # Fit across multiple starting parameter values, then choose best-fitting one:
     val <- 1e10
     op <- NULL
     n_starts <- 100L
-    known_L <- is.matrix(known_L_mat) && identical(dim(known_L_mat), c(29L,29L))
-    if (known_L) {
-        guess_list <- lapply(1:n_starts, \(i) runif(2, 0, c(10, 1)))
+    if (fit_survs) {
+        guess_list <- lapply(1:n_starts, \(i) runif(5, 0, c(10, 1, 10, 20, 1)))
     } else {
-        if (fit_survs) {
-            guess_list <- lapply(1:n_starts, \(i) runif(5, 0, c(10, 1, 10, 20, 1)))
-        } else {
-            guess_list <- lapply(1:n_starts, \(i) runif(4, 0, c(10, 1, 10, 20)))
-        }
+        guess_list <- lapply(1:n_starts, \(i) runif(4, 0, c(10, 1, 10, 20)))
     }
     # Choose 10 random reps to have very low and high offset values.
     # This helps with fitting.
@@ -271,7 +157,7 @@ fit_sims <- function(sim_df, known_L_mat,
     for (i in off_inds[(n_hilo %/% 2L + 1L):n_hilo])
         guess_list[[i]][2] <- runif(1, 1 - 1e-6, 1)
     # Similar for survival parameter (if used):
-    if (!known_L && fit_survs) {
+    if (fit_survs) {
         spar_inds <- sample.int(n_starts, n_hilo)
         for (i in spar_inds[1:(n_hilo %/% 2L)])
             guess_list[[i]][5] <- runif(1, 0, 1e-6)
@@ -280,19 +166,11 @@ fit_sims <- function(sim_df, known_L_mat,
     }
     for (s in 1:n_starts) {
         guess <- guess_list[[s]]
-        if (cpp) {
-            new_op <- optim(guess, fit_aphids0,
-                            known_L_mat = known_L_mat,
-                            re = re_df$re, time = re_df$time,
-                            max_f = max_f,
-                            fit_survs = fit_survs,
-                            max_shape = max_shape)
-        } else {
-            new_op <- optim(guess, fit_aphids0R, max_f = max_f,
-                            fit_survs = fit_survs,
-                            known_L_mat = known_L_mat, re_df = re_df,
-                            max_shape = max_shape)
-        }
+        new_op <- optim(guess, unknown_fit_aphids0,
+                        re = re_df$re, time = re_df$time,
+                        max_f = max_f,
+                        fit_survs = fit_survs,
+                        max_shape = max_shape)
         if (new_op$convergence == 0 && new_op$value < val) {
             val <- new_op$value
             op <- new_op
@@ -312,23 +190,6 @@ fit_sims <- function(sim_df, known_L_mat,
 
     return(pars)
 
-}
-
-
-
-# Width of 99th quartile (offset ignored):
-width99 <- function(shape, offset) {
-    sapply(shape, \(sh) {
-        q99 <- qbeta(c(0.005, 0.995), sh, sh)
-        return(abs(diff(q99)))
-    })
-}
-# Proportion of population that's reproducing:
-p_repro <- function(shape, offset) {
-    mapply(\(sh, of) {
-        a0 <- beta_starts(sh, of, 1)
-        return(sum(a0[10:29]))
-    }, sh = shape, of = offset)
 }
 
 
@@ -369,12 +230,12 @@ fop <- optim(c(2, 8),
              max_f = max(line_s$leslie[,,1]))
 
 
-test_sim <- function(i, .known_L_mat, .fit_survs) {
+test_sim <- function(i, .fit_survs) {
     shape <- runif(1, 0.5, 6)
     offset <- runif(1, 0, 1)
     K <- 1800
     sim_df <- sim_aphids(shape, offset, K)
-    fits <- fit_sims(sim_df, known_L_mat = .known_L_mat, fit_survs = .fit_survs)
+    fits <- fit_sims(sim_df, fit_survs = .fit_survs)
     if (length(fits) == 1) {
         if (fits == "multiple models") {
             stop(sprintf(paste("Multiple equally well-fitted models with",
@@ -402,9 +263,7 @@ test_sim <- function(i, .known_L_mat, .fit_survs) {
         stop(sprintf("any(is.na(fits))\n shape = %s\n offset = %s",
                      shape, offset))
     }
-    .known_L <- is.matrix(.known_L_mat) && identical(dim(.known_L_mat), c(29L,29L))
-    .obs_vars <- c(shape, offset)
-    if (!.known_L) .obs_vars <- c(.obs_vars, fop$par)
+    .obs_vars <- c(shape, offset, fop$par)
     if (.fit_survs) .obs_vars <- c(.obs_vars, 0.8329342)
     tibble(obs = .obs_vars,
            fit = unname(fits),
@@ -412,10 +271,10 @@ test_sim <- function(i, .known_L_mat, .fit_survs) {
            rep = i) |>
         mutate(param = factor(param, levels = param))
 }
-test_all_sims <- function(n_sims, .known_L_mat, .fit_survs) {
+test_all_sims <- function(n_sims, .fit_survs) {
     p <- progressor(steps = n_sims)
     future_lapply(1:n_sims, function(i, ...) {
-        ifits <- test_sim(i, .known_L_mat, .fit_survs)
+        ifits <- test_sim(i, .fit_survs)
         p()
         return(ifits)
     },
@@ -435,12 +294,12 @@ overwrite <- FALSE
 # simulations ----
 
 # Takes ~4 min
-if (overwrite || ! file.exists("_scripts/unknown_fits_df.rds")) {
+if (overwrite || ! file.exists(rds_file)) {
     t0 <- Sys.time()
     set.seed(1188441535)
     unknown_fits_df <- c(TRUE, FALSE) |>
         map_dfr(\(.fs) {
-            X <- test_all_sims(100L, .known_L_mat = matrix(), .fit_survs = .fs) |>
+            X <- test_all_sims(100L, .fit_survs = .fs) |>
                 do.call(what = bind_rows) |>
                 mutate(fit_survs = .fs)
             cat(sprintf("Finished fit_survs=%s!\n", .fs))
@@ -449,9 +308,9 @@ if (overwrite || ! file.exists("_scripts/unknown_fits_df.rds")) {
         mutate(fit_survs = factor(fit_survs, levels = c(TRUE, FALSE),
                                   labels = c("fit_survs", "survs=1")))
     t1 <- Sys.time()
-    write_rds(unknown_fits_df, "_scripts/unknown_fits_df.rds")
+    write_rds(unknown_fits_df, rds_file)
     print(t1 - t0); rm(t0, t1)
-} else unknown_fits_df <- read_rds("_scripts/unknown_fits_df.rds")
+} else unknown_fits_df <- read_rds(rds_file)
 
 
 
@@ -568,15 +427,15 @@ levels(unknown_fits_df$param)
 #            width = ifelse(p == "spar", 3, 6))
 # }; rm(p)
 
-# unknown11[["shape"]]
-# unknown11[["offset"]]
-# unknown11[["width99"]]
-# unknown11[["p_repro"]]
+unknown11[["shape"]]
+unknown11[["offset"]]
+unknown11[["width99"]]
+unknown11[["p_repro"]]
 
 
-# unknown_hist[["wshape"]]
-# unknown_hist[["wscale"]]
-# unknown_hist[["spar"]]
+unknown_hist[["wshape"]]
+unknown_hist[["wscale"]]
+unknown_hist[["spar"]]
 
 
 
