@@ -362,13 +362,21 @@ vary_fs_fit_ps <- c(levels(vary_fs_fit_df$param), "width99", "p_repro") |>
             # geom_vline(xintercept = .m, color = "gray70", linewidth = 0.5) +
             geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
             geom_point() +
+            xlab("Actual value") +
+            ylab("Fitted value") +
             facet_wrap(~ surv_x + fecund_x, nrow = 3, scales = "free") +
             ggtitle(pm[[.p]])
         return(p)
     })
 
-vary_fs_fit_ps[["shape"]]
+# vary_fs_fit_ps[["shape"]]
+vary_fs_fit_ps[["width99"]]
 vary_fs_fit_ps[["offset"]]
 vary_fs_fit_ps[["K"]]
-vary_fs_fit_ps[["width99"]]
 vary_fs_fit_ps[["p_repro"]]
+
+
+
+
+
+

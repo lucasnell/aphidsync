@@ -19,7 +19,7 @@ double known_fit_aphids0(const arma::vec& pars,
                          const arma::uvec& time,
                          const double& max_shape) {
 
-     if (pars.n_elem < 3) stop("pars.n_elem < 4 in known_fit_aphids0");
+     if (pars.n_elem < 3) stop("pars.n_elem < 3 in known_fit_aphids0");
 
      if (arma::any(pars < 0) || pars(1) > 1) return BIG_RETURN;
 
