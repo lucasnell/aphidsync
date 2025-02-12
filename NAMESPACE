@@ -3,6 +3,7 @@
 export(beta_starts)
 export(known_fit_aphids0)
 export(make_L1)
+export(med_age)
 export(p_repro)
 export(unknown_fit_aphids0)
 export(width99)

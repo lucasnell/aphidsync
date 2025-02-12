@@ -19,6 +19,7 @@ winnowing_optim(
   n_boxes = 1000L,
   n_fine = 100L,
   n_polished = 20L,
+  n_outputs = 3L,
   extra_optims = 10L
 )
 }
@@ -71,12 +72,15 @@ Defaults to \code{100L}.}
 Must be \verb{> n_fine}.
 Defaults to \code{20L}.}
 
+\item{n_outputs}{Number of top output object(s) to return.
+Must be \verb{> n_polished}. Defaults to \code{3L}.}
+
 \item{extra_optims}{Number of potential extra rounds of optimizations to run
 if the best polished optimization still hasn't converged.
 Defaults to \code{10L}.}
 }
 \value{
-A single object of the class returned by \code{polished_optim}.
+\code{n_outputs} object(s) of the class returned by \code{polished_optim}.
 }
 \description{
 Winnowing optimization

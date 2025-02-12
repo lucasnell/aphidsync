@@ -98,13 +98,15 @@ run_optim <- function(.optim, .pars, .fn, .control, .fn_args) {
 #' @param n_polished Number of polished optimizations.
 #'     Must be `> n_fine`.
 #'     Defaults to `20L`.
+#' @param n_outputs Number of top output object(s) to return.
+#'     Must be `> n_polished`. Defaults to `3L`.
 #' @param extra_optims Number of potential extra rounds of optimizations to run
 #'     if the best polished optimization still hasn't converged.
 #'     Defaults to `10L`.
 #'
 #' @importFrom stats optim
 #'
-#' @returns A single object of the class returned by `polished_optim`.
+#' @returns `n_outputs` object(s) of the class returned by `polished_optim`.
 #'
 #'
 #' @export
@@ -123,6 +125,7 @@ winnowing_optim <- function(fn,
                             n_boxes = 1000L,
                             n_fine = 100L,
                             n_polished = 20L,
+                            n_outputs = 3L,
                             extra_optims = 10L) {
 
 
@@ -141,6 +144,7 @@ winnowing_optim <- function(fn,
     stopifnot(length(n_boxes) == 1L && as.integer(n_boxes) == n_boxes)
     stopifnot(length(n_fine) == 1L && as.integer(n_fine) == n_fine)
     stopifnot(length(n_polished) == 1L && as.integer(n_polished) == n_polished)
+    stopifnot(length(n_outputs) == 1L && as.integer(n_outputs) == n_outputs)
     stopifnot(length(extra_optims) == 1L && as.integer(extra_optims) == extra_optims)
 
     # Value checks:
@@ -149,6 +153,7 @@ winnowing_optim <- function(fn,
     stopifnot(n_boxes > 0L)
     stopifnot(n_fine > 0L && n_fine < n_boxes)
     stopifnot(n_polished > 0L && n_polished < n_fine)
+    stopifnot(n_outputs > 0L && n_outputs < n_polished)
     stopifnot(extra_optims >= 0L)
 
 
@@ -201,18 +206,25 @@ winnowing_optim <- function(fn,
         return(op)
     })
     polished_vals <- sapply(polished_op, \(x) get_val(x, optim_pkgs$polished))
-    best_op <- polished_op[[which(polished_vals == min(polished_vals))[[1]]]]
-    not_converged <- !get_converged(best_op, optim_pkgs$polished)
+    sort_idx <- order(polished_vals)
+    polished_op <- polished_op[sort_idx]
+    polished_vals <- polished_vals[sort_idx]
 
-    while (extra_optims > 0L && not_converged) {
-        best_op <- run_optim(polished_optim, best_op$par, fn,
-                             polished_control, fn_args)
-        not_converged <- !get_converged(best_op, optim_pkgs$polished)
-        extra_optims <- extra_optims - 1L
+    best_ops <- polished_op[1:n_outputs]
+    not_conv <- sapply(best_ops, \(o) !get_converged(o, optim_pkgs$polished))
+
+    for (i in 1:n_outputs) {
+        eo <- as.integer(extra_optims)
+        while (eo > 0L && not_conv[i]) {
+            best_ops[[i]] <- run_optim(polished_optim, best_ops[[i]]$par, fn,
+                                       polished_control, fn_args)
+            not_conv[i] <- !get_converged(best_ops[[i]], optim_pkgs$polished)
+            eo <- eo - 1L
+        }
+        if (not_conv[i]) warning("Final optimization ", i, " has not converged.")
     }
-    if (not_converged) warning("Final optimization has not converged.")
 
-    return(best_op)
+    return(best_ops)
 
 }
 
