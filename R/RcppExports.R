@@ -3,8 +3,8 @@
 
 #' @export
 #' @noRd
-known_fit_aphids0 <- function(pars, L, obs, time, max_shape, compare_N = FALSE) {
-    .Call(`_aphidsync_known_fit_aphids0`, pars, L, obs, time, max_shape, compare_N)
+known_fit_aphids0 <- function(pars, K, L, obs, time, max_shape, compare_N = FALSE) {
+    .Call(`_aphidsync_known_fit_aphids0`, pars, K, L, obs, time, max_shape, compare_N)
 }
 
 #' @export

@@ -121,6 +121,12 @@ inline arma::vec sim_re(const arma::vec& aphids0,
         Nsums0 = Nsums;
     }
 
+    // If `re_pred` doesn't match length of `time` -1, then use `time` as a
+    // vector of indices
+    if (re_pred.n_elem != (time.n_elem-1)) {
+        re_pred = re_pred(time.head(time.n_elem-1));
+    }
+
     return re_pred;
 
 }
@@ -145,6 +151,10 @@ inline arma::vec sim_N(const arma::vec& aphids0,
         Nt = S * (L * Nt);
         N_pred(t) = arma::accu(Nt);
     }
+
+    // If `N_pred` doesn't match length of `time`, then use `time` as a
+    // vector of indices
+    if (N_pred.n_elem != time.n_elem) N_pred = N_pred(time);
 
     return N_pred;
 
