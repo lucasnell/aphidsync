@@ -126,5 +126,30 @@ inline arma::vec sim_re(const arma::vec& aphids0,
 }
 
 
+// Simulate abundances (summed across stages) to be compared to observed values
+inline arma::vec sim_N(const arma::vec& aphids0,
+                       const arma::mat& L,
+                       const arma::uvec& time,
+                       const double& K) {
+
+    uint32_t max_t = arma::max(time) + 1;
+
+    arma::vec N_pred(max_t, arma::fill::none);
+
+    arma::vec Nt = aphids0;
+    N_pred(0) = arma::accu(aphids0);
+    double S;
+    for (uint32_t t = 1; t < max_t; t++) {
+        double& z(N_pred(t-1));
+        S = 1 / (1 + z / K);
+        Nt = S * (L * Nt);
+        N_pred(t) = arma::accu(Nt);
+    }
+
+    return N_pred;
+
+}
+
+
 
 #endif

@@ -15,9 +15,10 @@ using namespace Rcpp;
 //[[Rcpp::export]]
 double known_fit_aphids0(const arma::vec& pars,
                          const arma::mat& L,
-                         const arma::vec& re,
+                         const arma::vec& obs,
                          const arma::uvec& time,
-                         const double& max_shape) {
+                         const double& max_shape,
+                         const bool& compare_N = false) {
 
      if (pars.n_elem < 3) stop("pars.n_elem < 3 in known_fit_aphids0");
 
@@ -33,17 +34,20 @@ double known_fit_aphids0(const arma::vec& pars,
 
      arma::vec aphids0 = beta_starts_cpp(shape, offset, STARTING_ABUNDANCE, N_STAGES);
 
-     // Simulate with given parameters:
-     arma::vec re_pred = sim_re(aphids0, L, time, K);
+     // Simulate with given parameters (either per-capita growth or abundance):
+     arma::vec pred;
+     if (compare_N) {
+         pred = sim_N(aphids0, L, time, K);
+     } else pred = sim_re(aphids0, L, time, K);
 
-     if (re_pred.n_elem != (time.n_elem-1)) {
-         re_pred = re_pred(time.head(time.n_elem-1));
+     if (pred.n_elem != (time.n_elem-1)) {
+         pred = pred(time.head(time.n_elem-1));
      }
-     if (re.n_elem != time.n_elem) stop("re.n_elem != time.n_elem");
+     if (obs.n_elem != time.n_elem) stop("obs.n_elem != time.n_elem");
 
      double sae = 0;
-     for (uint32_t t = 0; t < re_pred.n_elem; t++) {
-         sae += std::abs(re_pred(t) - re(t));
+     for (uint32_t t = 0; t < pred.n_elem; t++) {
+         sae += std::abs(pred(t) - obs(t));
      }
      if (sae > BIG_RETURN) sae = BIG_RETURN;
 
