@@ -109,16 +109,14 @@ inline arma::vec sim_re(const arma::vec& aphids0,
 
     arma::vec re_pred(max_t - 1, arma::fill::none);
 
-    arma::vec Nt = aphids0;
-    arma::vec dN(Nt.n_elem, arma::fill::none);
+    arma::vec Nvec = aphids0;
     double Nsums0 = arma::accu(aphids0);
     double S, Nsums;
     for (uint32_t t = 1; t < max_t; t++) {
         double& z(Nsums0);
-        S = 1 - z / K;
-        dN = S * ((L * Nt) - Nt);
-        Nt += dN;
-        Nsums = arma::accu(Nt);
+        S = 1 / (1 + z / K);
+        Nvec = S * (L * Nvec);
+        Nsums = arma::accu(Nvec);
         re_pred(t-1) = Nsums / Nsums0;
         Nsums0 = Nsums;
     }
@@ -145,14 +143,12 @@ inline arma::vec sim_N(const arma::vec& aphids0,
     arma::vec N_pred(max_t, arma::fill::none);
 
     arma::vec Nt = aphids0;
-    arma::vec dN(Nt.n_elem, arma::fill::none);
     N_pred(0) = arma::accu(aphids0);
     double S;
     for (uint32_t t = 1; t < max_t; t++) {
         double& z(N_pred(t-1));
-        S = 1 - z / K;
-        dN = S * ((L * Nt) - Nt);
-        Nt += dN;
+        S = 1 / (1 + z / K);
+        Nt = S * (L * Nt);
         N_pred(t) = arma::accu(Nt);
     }
 
