@@ -219,11 +219,53 @@ fn_args = list(L = line_s$leslie[,,1],
                time = re_df$time,
                max_shape = 1000)
 
-# Takes ~17 sec
-op <- winnowing_optim(fn = known_fit_aphids0,
-                      lower_bounds = c(  0, 0, 1e-9),
-                      upper_bounds = c(100, 1, 10e3),
-                      fn_args)
+# # Takes ~17 sec
+# op <- winnowing_optim(fn = known_fit_aphids0,
+#                       lower_bounds = c(  0, 0, 1e-9),
+#                       upper_bounds = c(100, 1, 10e3),
+#                       fn_args)
+#
+# op$par; c(.shape, .offset, .K)
+# op$par - c(.shape, .offset, .K)
 
-op$par; c(.shape, .offset, .K)
-op$par - c(.shape, .offset, .K)
+
+cntrl <- list(box = list(maxit = 100, reltol = 1e-4),
+              fine = list(maxit = 500, reltol = 1e-6),
+              polished = list(maxit = 1000, reltol = 1e-8))
+# for nloptr
+cntrl2 <- list(box = list(maxeval = 100, xtol_rel = 1e-4),
+              fine = list(maxeval = 500, xtol_rel = 1e-6),
+              polished = list(maxeval = 1000, xtol_rel = 1e-8))
+# for minqa
+cntrl3 <- list(box = list(maxfun = 100),
+              fine = list(maxfun = 500),
+              polished = list(maxfun = 1000))
+
+
+
+foo1 <- function(.t) do.call(optim, c(list(par = c(50, 0.5, 1000),
+                                           fn = known_fit_aphids0,
+                                           control = cntrl[[.t]]),
+                                      fn_args))
+foo2 <- function(.t) do.call(nloptr::bobyqa, c(list(x0 = c(50, 0.5, 1000),
+                                                    fn = known_fit_aphids0,
+                                                    control = cntrl2[[.t]]),
+                                               fn_args))
+foo3 <- function(.t) do.call(nloptr::newuoa, c(list(x0 = c(50, 0.5, 1000),
+                                                    fn = known_fit_aphids0,
+                                                    control = cntrl2[[.t]]),
+                                               fn_args))
+foo4 <- function(.t) do.call(minqa::bobyqa, c(list(par = c(50, 0.5, 1000),
+                                                   fn = known_fit_aphids0,
+                                                   control = cntrl3[[.t]]),
+                                              fn_args))
+foo5 <- function(.t) do.call(minqa::newuoa, c(list(par = c(50, 0.5, 1000),
+                                                   fn = known_fit_aphids0,
+                                                   control = cntrl3[[.t]]),
+                                              fn_args))
+
+
+
+microbenchmark::microbenchmark(optim = foo1("box"), nl_bobyqa = foo2("box"),
+                               nl_newuoa = foo3("box"), mi_bobyqa = foo4("box"),
+                               mi_newuoa = foo5("box"))

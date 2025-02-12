@@ -20,7 +20,9 @@ if (interactive() && file.exists(".Rprofile")) source(".Rprofile")
 
 # Files created here to store simulation data:
 rds_files <- list(known = "_data/known_fit_df.rds",
-                  vary_fs = "_data/vary_fs_fit_df.rds")
+                  vary_fs = "_data/vary_fs_fit_df.rds",
+                  vary_fs_x = "_data/vary_fs_x_fit_df.rds",
+                  vary_fs_N = "_data/vary_fs_N_fit_df.rds")
 
 
 col_pal <- c(resistant = viridis(100)[50],
@@ -121,15 +123,23 @@ sim_aphids <- function(.shape, .offset, .K, .line,
 # Fit the two shape parameters for a set of simulations.
 # NOTE: This version doesn't allow for multiple lines (yet).
 #
-fit_sims <- function(sim_df, L, max_shape = 800, cycles = TRUE) {
+fit_sims <- function(sim_df, L, max_shape = 800,
+                     compare_N = FALSE,
+                     optim_args = list()) {
+                     # cycles = TRUE,
 
     stopifnot(length(unique(sim_df$line)) == 1L)
 
     if (nrow(sim_df) < 3L) return("low rows") # special meaning in `test_sim`
 
-    re_df <- sim_df |>
-        arrange(time) |>
-        mutate(re = (lead(N) / N)^(1/(lead(time) - time)))
+    if (compare_N) {
+        observed <- sim_df$N
+    } else {
+        re_df <- sim_df |>
+            arrange(time) |>
+            mutate(re = (lead(N) / N)^(1/(lead(time) - time)))
+        observed <- re_df$re
+    }
 
     # amr_df <- sim_df
     # if (cycles) {
@@ -164,42 +174,54 @@ fit_sims <- function(sim_df, L, max_shape = 800, cycles = TRUE) {
     #         return(L)
     #     })
     # }
+    #
+    # # Fit across multiple starting offsets, then choose best-fitting one:
+    # val <- 1e10
+    # op <- NULL
+    # n_starts <- 100L
+    # guess_list <- lapply(1:n_starts, \(i) runif(3, 0, c(10, 1, 10e3)))
+    #
+    # # Choose 10 random reps to have very low and high offset values.
+    # # This helps with fitting.
+    # n_hilo <- 10L
+    # off_inds <- sample.int(n_starts, n_hilo)
+    # for (i in off_inds[1:(n_hilo %/% 2L)])
+    #     guess_list[[i]][2] <- runif(1, 0, 1e-6)
+    # for (i in off_inds[(n_hilo %/% 2L + 1L):n_hilo])
+    #     guess_list[[i]][2] <- runif(1, 1 - 1e-6, 1)
+    # for (s in 1:n_starts) {
+    #     guess <- guess_list[[s]]
+    #     new_op <- optim(guess, known_fit_aphids0,
+    #                     L = L, re = re_df$re, time = re_df$time,
+    #                     max_shape = max_shape)
+    #     if (new_op$convergence == 0 && new_op$value < val) {
+    #         val <- new_op$value
+    #         op <- new_op
+    #     }
+    #     if (new_op$convergence == 0 && !is.null(op) && new_op$value == val) {
+    #         if (!isTRUE(all.equal(op$par, new_op$par))) {
+    #             # This triggers a specific error in `test_sim`:
+    #             return("multiple models")
+    #         }
+    #     }
+    # }
+    #
+    # if (is.null(op)) return("no converged") # specific meaning in `test_sim`
 
-    # Fit across multiple starting offsets, then choose best-fitting one:
-    val <- 1e10
-    op <- NULL
-    n_starts <- 100L
-    guess_list <- lapply(1:n_starts, \(i) runif(3, 0, c(10, 1, 10e3)))
-
-    # Choose 10 random reps to have very low and high offset values.
-    # This helps with fitting.
-    n_hilo <- 10L
-    off_inds <- sample.int(n_starts, n_hilo)
-    for (i in off_inds[1:(n_hilo %/% 2L)])
-        guess_list[[i]][2] <- runif(1, 0, 1e-6)
-    for (i in off_inds[(n_hilo %/% 2L + 1L):n_hilo])
-        guess_list[[i]][2] <- runif(1, 1 - 1e-6, 1)
-    for (s in 1:n_starts) {
-        guess <- guess_list[[s]]
-        new_op <- optim(guess, known_fit_aphids0,
-                        L = L, re = re_df$re, time = re_df$time,
-                        max_shape = max_shape)
-        if (new_op$convergence == 0 && new_op$value < val) {
-            val <- new_op$value
-            op <- new_op
-        }
-        if (new_op$convergence == 0 && !is.null(op) && new_op$value == val) {
-            if (!isTRUE(all.equal(op$par, new_op$par))) {
-                # This triggers a specific error in `test_sim`:
-                return("multiple models")
-            }
-        }
-    }
-
-    if (is.null(op)) return("no converged") # specific meaning in `test_sim`
-
+    # Do optimization using winnowing approach
+    op_args <- optim_args
+    op_args[["fn"]] <- known_fit_aphids0
+    op_args[["lower_bounds"]] <- rep(0, 3)
+    op_args[["upper_bounds"]] <- c(100, 1, 10e3)
+    op_args[["fn_args"]] <- list(L = L,
+                                 obs = observed,
+                                 time = sim_df$time,
+                                 max_shape = max_shape,
+                                 compare_N = compare_N)
+    op <- do.call(winnowing_optim, op_args)
+    if (!"par" %in% names(op)) stop("unknown output parameter name")
     pars <- op$par
-    names(pars) <- c("shape", "offset", "K")[1:length(op$par)]
+    names(pars) <- c("shape", "offset", "K")
 
     return(pars)
 
@@ -208,13 +230,14 @@ fit_sims <- function(sim_df, L, max_shape = 800, cycles = TRUE) {
 
 
 # Test 1 simulation fit for a single fecundity and survival combination
-test_sim <- function(i, .line, .sd_error) {
+test_sim <- function(i, .L, .sd_error, .compare_N, .optim_args = list()) {
     shape <- runif(1, 0.5, 6)
     offset <- runif(1, 0, 1)
     K <- runif(1, 1000, 5000)
     # Simulate `line_s`, but fit using altered `.line`:
     sim_df <- sim_aphids(shape, offset, K, line_s, sd_error = .sd_error)
-    fits <- fit_sims(sim_df, .line$leslie[,,1])
+    fits <- fit_sims(sim_df = sim_df, L = .L, compare_N = .compare_N,
+                     optim_args = .optim_args)
     if (length(fits) == 1) {
         if (fits == "multiple models") {
             stop(sprintf(paste("Multiple equally well-fitted models with",
@@ -242,8 +265,7 @@ test_sim <- function(i, .line, .sd_error) {
         stop(sprintf("any(is.na(fits))\n shape = %s\n offset = %s",
                      shape, offset))
     }
-    .obs_vars <- c(shape, offset, K)
-    tibble(obs = .obs_vars,
+    tibble(obs = c(shape, offset, K),
            fit = unname(fits),
            param = names(fits),
            rep = i) |>
@@ -252,18 +274,19 @@ test_sim <- function(i, .line, .sd_error) {
 
 
 # Test all 100 simulation fits for a single fecundity and survival combination
-test_all_sims <- function(n_sims, .surv_x, .fecund_x, .sd_error = 0) {
-    .line <- line_s
+test_all_sims <- function(n_sims, .surv_x = 0, .fecund_x = 1, sd_error = 0,
+                          compare_N = FALSE,
+                          optim_args = list()) {
+    L <- line_s$leslie[,,1]
     if (.surv_x != 0 || .fecund_x != 1) {
-        L <- .line$leslie[,,1]
         survs <- inv_logit(logit(L[row(L) - col(L) == 1]) + .surv_x)
         L[row(L) - col(L) == 1] <- survs
         L[1,9:29] <- L[1,9:29] * .fecund_x
-        .line$leslie[,,1] <- L
     }
     p <- progressor(steps = n_sims)
-    out <- future_lapply(1:n_sims, function(i, ...) {
-        ifits <- test_sim(i, .line, .sd_error)
+    out <- future_lapply(1:n_sims, function(i) {
+        ifits <- test_sim(i, .L = L, .sd_error = sd_error,
+                          .compare_N = compare_N, .optim_args = optim_args)
         p()
         return(ifits)
     },
@@ -277,15 +300,20 @@ test_all_sims <- function(n_sims, .surv_x, .fecund_x, .sd_error = 0) {
 
 
 
+
+
 # simulations ----
 
 overwrite <- FALSE
 
-# Takes ~1 min
+# Takes ~5 min
 if (overwrite || ! file.exists(rds_files$known)) {
     t0 <- Sys.time()
     set.seed(1740563097)
-    known_fit_df <- test_all_sims(100L, 1, 1) |>
+    known_fit_df <- test_all_sims(100L,
+                                  optim_args = list(box_optim = nloptr::bobyqa,
+                                                    fine_optim = optim,
+                                                    polished_optim = optim)) |>
         select(-surv_x, -fecund_x)
     t1 <- Sys.time()
     write_rds(known_fit_df, rds_files$known)
@@ -293,18 +321,23 @@ if (overwrite || ! file.exists(rds_files$known)) {
 } else known_fit_df <- read_rds(rds_files$known)
 
 
+
+
 # LEFT OFF ----
 
 
 # Vary fecundities and survivals:
-# Takes 20 min
+# Takes 50 min
 if (overwrite || ! file.exists(rds_files$vary_fs)) {
     t0 <- Sys.time()
     set.seed(1013619437)
     vary_fs_fit_df <- crossing(.surv_x = c(-1, 0, 1),
                                .fecund_x = c(0.8, 1, 1.2)) |>
         pmap_dfr(\(.surv_x, .fecund_x) {
-            out <- test_all_sims(100L, .surv_x, .fecund_x)
+            out <- test_all_sims(100L, .surv_x, .fecund_x,
+                                 optim_args = list(box_optim = nloptr::bobyqa,
+                                                   fine_optim = optim,
+                                                   polished_optim = optim))
             cat(sprintf("finished surv_x = %.1f, fecund_x = %.1f\n",
                         .surv_x, .fecund_x))
             return(out)
@@ -315,6 +348,52 @@ if (overwrite || ! file.exists(rds_files$vary_fs)) {
 } else vary_fs_fit_df <- read_rds(rds_files$vary_fs)
 
 
+# Same as above but using 1000 evaluations per box:
+# Takes ~5.5 hours
+if (overwrite || ! file.exists(rds_files$vary_fs_x)) {
+    t0 <- Sys.time()
+    set.seed(1278546031)
+    vary_fs_x_fit_df <- crossing(.surv_x = c(-1, 0, 1),
+                                 .fecund_x = c(0.8, 1, 1.2)) |>
+        pmap_dfr(\(.surv_x, .fecund_x) {
+            out <- test_all_sims(100L, .surv_x, .fecund_x,
+                                 optim_args = list(box_optim = nloptr::bobyqa,
+                                                   fine_optim = optim,
+                                                   polished_optim = optim,
+                                                   n_bevals = 1000L))
+            cat(sprintf("finished surv_x = %.1f, fecund_x = %.1f\n",
+                        .surv_x, .fecund_x))
+            return(out)
+        })
+    t1 <- Sys.time()
+    write_rds(vary_fs_x_fit_df, rds_files$vary_fs_x)
+    print(t1 - t0); rm(t0, t1)
+} else vary_fs_x_fit_df <- read_rds(rds_files$vary_fs_x)
+
+
+# Same as above but comparing abundances, not growth rates
+# Takes ~49 min
+if (overwrite || ! file.exists(rds_files$vary_fs_N)) {
+    t0 <- Sys.time()
+    set.seed(106948406)
+    vary_fs_N_fit_df <- crossing(.surv_x = c(-1, 0, 1),
+                               .fecund_x = c(0.8, 1, 1.2)) |>
+        pmap_dfr(\(.surv_x, .fecund_x) {
+            out <- test_all_sims(100L, .surv_x, .fecund_x,
+                                 compare_N = TRUE,
+                                 optim_args = list(box_optim = nloptr::bobyqa,
+                                                   fine_optim = optim,
+                                                   polished_optim = optim))
+            cat(sprintf("finished surv_x = %.1f, fecund_x = %.1f\n",
+                        .surv_x, .fecund_x))
+            return(out)
+        })
+    t1 <- Sys.time()
+    write_rds(vary_fs_N_fit_df, rds_files$vary_fs_N)
+    print(t1 - t0); rm(t0, t1)
+} else vary_fs_N_fit_df <- read_rds(rds_files$vary_fs_N)
+
+
 
 
 
@@ -322,58 +401,108 @@ if (overwrite || ! file.exists(rds_files$vary_fs)) {
 
 # plots ----
 
-# known_fit_df |>
-#     ggplot(aes(obs, fit)) +
-#     geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
-#     geom_point() +
-#     facet_wrap(~ param, nrow = 1, scales = "free") +
-#     ggtitle("with perfect Leslie")
+known_fit_df |>
+    ggplot(aes(obs, fit)) +
+    geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
+    geom_point() +
+    facet_wrap(~ param, nrow = 1, scales = "free") +
+    ggtitle("with perfect Leslie")
 
+
+vary_fs_plotter <- function(.p, .df) {
+
+    if (.p %in% levels(.df$param)) {
+        d <- .df |>
+            filter(param == .p)
+    } else {
+        stopifnot(.p %in% c("width99", "p_repro"))
+        f <- eval(parse(text = .p))
+        d <- .df |>
+            filter(param %in% c("shape", "offset")) |>
+            pivot_wider(names_from = "param", values_from = c(obs, fit)) |>
+            mutate(obs = f(obs_shape, obs_offset),
+                   fit = f(fit_shape, fit_offset))
+    }
+    g <- function(x, n) factor(x, levels = sort(unique(x)),
+                               labels = paste(c("low", "perfect", "high"), n))
+    pm <- list(shape = "Initial Beta shape",
+               offset = "Initial Beta offset",
+               K = "Density dependence",
+               width99 = "Width of 99% quantile",
+               p_repro = "Proportion of initial aphids reproducing")
+    .m <- min(d$obs, d$fit)
+    p <- d |>
+        mutate(surv_x = g(surv_x, "survival"),
+               fecund_x = g(fecund_x, "fecundity")) |>
+        ggplot(aes(obs, fit)) +
+        # geom_hline(yintercept = .m, color = "gray70", linewidth = 0.5) +
+        # geom_vline(xintercept = .m, color = "gray70", linewidth = 0.5) +
+        geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
+        geom_point() +
+        xlab("Actual value") +
+        ylab("Fitted value") +
+        facet_wrap(~ surv_x + fecund_x, nrow = 3, scales = "free") +
+        ggtitle(pm[[.p]])
+    return(p)
+}
 
 
 vary_fs_fit_ps <- c(levels(vary_fs_fit_df$param), "width99", "p_repro") |>
     set_names() |>
-    map(\(.p){
-        if (.p %in% levels(vary_fs_fit_df$param)) {
-            d <- vary_fs_fit_df |>
-                filter(param == .p)
-        } else {
-            stopifnot(.p %in% c("width99", "p_repro"))
-            f <- eval(parse(text = .p))
-            d <- vary_fs_fit_df |>
-                filter(param %in% c("shape", "offset")) |>
-                pivot_wider(names_from = "param", values_from = c(obs, fit)) |>
-                mutate(obs = f(obs_shape, obs_offset),
-                       fit = f(fit_shape, fit_offset))
-        }
-        g <- function(x, n) factor(x, levels = sort(unique(x)),
-                                   labels = paste(c("low", "perfect", "high"), n))
-        pm <- list(shape = "Initial Beta shape",
-                   offset = "Initial Beta offset",
-                   K = "Density dependence",
-                   width99 = "Width of 99% quantile",
-                   p_repro = "Proportion of initial aphids reproducing")
-        .m <- min(d$obs, d$fit)
-        p <- d |>
-            mutate(surv_x = g(surv_x, "survival"),
-                   fecund_x = g(fecund_x, "fecundity")) |>
-            ggplot(aes(obs, fit)) +
-            # geom_hline(yintercept = .m, color = "gray70", linewidth = 0.5) +
-            # geom_vline(xintercept = .m, color = "gray70", linewidth = 0.5) +
-            geom_abline(slope = 1, intercept = 0, linetype = 2, color = "red") +
-            geom_point() +
-            xlab("Actual value") +
-            ylab("Fitted value") +
-            facet_wrap(~ surv_x + fecund_x, nrow = 3, scales = "free") +
-            ggtitle(pm[[.p]])
-        return(p)
-    })
+    map(vary_fs_plotter, .df = vary_fs_fit_df)
 
 # vary_fs_fit_ps[["shape"]]
 vary_fs_fit_ps[["width99"]]
 vary_fs_fit_ps[["offset"]]
 vary_fs_fit_ps[["K"]]
 vary_fs_fit_ps[["p_repro"]]
+
+
+# for (p in c("width99", "offset", "K", "p_repro")) {
+#     ggsave(sprintf("_figures/fit-%s.pdf", p), vary_fs_fit_ps[[p]],
+#            width = 6, height = 6)
+# }; rm(p)
+
+
+
+
+
+vary_fs_N_fit_ps <- c(levels(vary_fs_N_fit_df$param), "width99", "p_repro") |>
+    set_names() |>
+    map(vary_fs_plotter, .df = vary_fs_N_fit_df)
+
+# vary_fs_N_fit_ps[["shape"]]
+vary_fs_N_fit_ps[["width99"]]
+vary_fs_N_fit_ps[["offset"]]
+vary_fs_N_fit_ps[["K"]]
+vary_fs_N_fit_ps[["p_repro"]]
+
+
+# for (p in c("width99", "offset", "K", "p_repro")) {
+#     ggsave(sprintf("_figures/fit-N-%s.pdf", p), vary_fs_N_fit_ps[[p]],
+#            width = 6, height = 6)
+# }; rm(p)
+
+
+
+
+vary_fs_x_fit_ps <- c(levels(vary_fs_x_fit_df$param), "width99", "p_repro") |>
+    set_names() |>
+    map(vary_fs_plotter, .df = vary_fs_x_fit_df)
+
+# vary_fs_x_fit_ps[["shape"]]
+vary_fs_x_fit_ps[["width99"]]
+vary_fs_x_fit_ps[["offset"]]
+vary_fs_x_fit_ps[["K"]]
+vary_fs_x_fit_ps[["p_repro"]]
+
+
+# for (p in c("width99", "offset", "K", "p_repro")) {
+#     ggsave(sprintf("_figures/fit-X-%s.pdf", p), vary_fs_x_fit_ps[[p]],
+#            width = 6, height = 6)
+# }; rm(p)
+
+
 
 
 
