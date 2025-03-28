@@ -1,0 +1,91 @@
+---
+title: "Aphid synchrony"
+author: "Lucas A. Nell"
+format:
+  revealjs:
+    embed-resources: true
+    mermaid:
+      theme: default
+---
+
+## Introduction
+
+The purpose of this presentation is to show what goes wrong in estimating
+synchrony in aphid populations.
+
+
+## Analysis
+
+```{mermaid}
+flowchart LR
+  subgraph inputs
+    shape[shape]
+    offset[offset]
+    K[K]
+  end
+  subgraph simulations
+    shape --> age_d(initial age distribution)
+    offset --> age_d
+    age_d --> sim_aphids{sim_aphids}
+    K --> sim_aphids
+    sim_aphids --> N_ts(N time series)
+    N_ts --> re_ts(pcg time series)
+  end
+  subgraph fitting
+    re_ts --> optim{winnowing_optim}
+  end
+  subgraph outputs
+    optim --> shape_star[shape*]
+    optim --> offset_star[offset*]
+    K_star[K*] --> optim
+    N_ts --> K_star
+    shape_star --> width99[width of 99th quartile]
+    shape_star --> med_age[median age]
+    offset_star --> med_age
+  end
+```
+
+## Analysis 2
+
+```{mermaid}
+stateDiagram-v2
+nts: N time series
+pts: pcg time series
+  [*] --> shape
+  [*] --> offset
+  shape --> sim_aphids
+  offset --> sim_aphids
+  K --> sim_aphids
+  sim_aphids --> nts
+  sim_aphids --> pts
+  nts --> K
+  pts --> winnowing_optim
+  K --> winnowing_optim
+  winnowing_optim --> shape
+  winnowing_optim --> offset
+  shape --> [*]
+  offset --> [*]
+```
+
+
+
+
+## Bullets
+
+```{mermaid}
+flowchart LR
+  A[Hard edge] --> B(Round edge)
+  B --> C{Decision}
+  C --> D[Result one]
+  C --> E[Result two]
+```
+
+## Code
+
+When you click the **Render** button a presentation will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+1 + 1
+```
+
+

@@ -1,0 +1,3 @@
+
+# The files for self-contained quarto presentations are massive (>6 MB)
+*.html
