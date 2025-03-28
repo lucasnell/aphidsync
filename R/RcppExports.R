@@ -5,6 +5,56 @@
 #' @noRd
 known_fit_aphids0 <- function(pars, K, L, obs, time, max_shape, compare_N = FALSE) {
     .Call(`_aphidsync_known_fit_aphids0`, pars, K, L, obs, time, max_shape, compare_N)
+#' Calculate lambda (exponential growth rate) from Leslie matrix.
+#'
+#' @param L Leslie matrix.
+#'
+#' @export
+#'
+calc_lambda <- function(L) {
+    .Call(`_aphidsync_calc_lambda`, L)
+}
+
+#' Width of 99th quartile
+#'
+#' @param shape Vector of shape parameters for the symmetrical beta
+#'     distribution of abundances.
+#'
+#' @export
+#'
+width99 <- function(shape) {
+    .Call(`_aphidsync_width99`, shape)
+}
+
+#' Median age
+#'
+#' @inheritParams width99
+#' @param offset Vector of offset value(s) for the symmetrical beta
+#'     distribution of abundances.
+#'     Must be the same length as `shape`.
+#'
+#' @export
+#'
+med_age <- function(shape, offset, n_stages = 29L) {
+    .Call(`_aphidsync_med_age`, shape, offset, n_stages)
+}
+
+#' Logit and inverse logit functions.
+#'
+#'
+#' @name logit
+#' @export
+#'
+logit <- function(p) {
+    .Call(`_aphidsync_logit`, p)
+}
+
+#' @describeIn logit
+#'
+#' @export
+#'
+inv_logit <- function(a) {
+    .Call(`_aphidsync_inv_logit`, a)
 }
 
 #' @export

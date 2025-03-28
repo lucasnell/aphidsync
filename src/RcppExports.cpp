@@ -25,6 +25,60 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< const double& >::type max_shape(max_shapeSEXP);
     Rcpp::traits::input_parameter< const bool& >::type compare_N(compare_NSEXP);
     rcpp_result_gen = Rcpp::wrap(known_fit_aphids0(pars, K, L, obs, time, max_shape, compare_N));
+// calc_lambda
+double calc_lambda(const arma::mat& L);
+RcppExport SEXP _aphidsync_calc_lambda(SEXP LSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::mat& >::type L(LSEXP);
+    rcpp_result_gen = Rcpp::wrap(calc_lambda(L));
+    return rcpp_result_gen;
+END_RCPP
+}
+// width99
+NumericVector width99(NumericVector shape);
+RcppExport SEXP _aphidsync_width99(SEXP shapeSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type shape(shapeSEXP);
+    rcpp_result_gen = Rcpp::wrap(width99(shape));
+    return rcpp_result_gen;
+END_RCPP
+}
+// med_age
+NumericVector med_age(NumericVector shape, NumericVector offset, int n_stages);
+RcppExport SEXP _aphidsync_med_age(SEXP shapeSEXP, SEXP offsetSEXP, SEXP n_stagesSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type shape(shapeSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type offset(offsetSEXP);
+    Rcpp::traits::input_parameter< int >::type n_stages(n_stagesSEXP);
+    rcpp_result_gen = Rcpp::wrap(med_age(shape, offset, n_stages));
+    return rcpp_result_gen;
+END_RCPP
+}
+// logit
+NumericVector logit(NumericVector p);
+RcppExport SEXP _aphidsync_logit(SEXP pSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type p(pSEXP);
+    rcpp_result_gen = Rcpp::wrap(logit(p));
+    return rcpp_result_gen;
+END_RCPP
+}
+// inv_logit
+NumericVector inv_logit(NumericVector a);
+RcppExport SEXP _aphidsync_inv_logit(SEXP aSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type a(aSEXP);
+    rcpp_result_gen = Rcpp::wrap(inv_logit(a));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -101,6 +155,11 @@ END_RCPP
 
 static const R_CallMethodDef CallEntries[] = {
     {"_aphidsync_known_fit_aphids0", (DL_FUNC) &_aphidsync_known_fit_aphids0, 7},
+    {"_aphidsync_calc_lambda", (DL_FUNC) &_aphidsync_calc_lambda, 1},
+    {"_aphidsync_width99", (DL_FUNC) &_aphidsync_width99, 1},
+    {"_aphidsync_med_age", (DL_FUNC) &_aphidsync_med_age, 3},
+    {"_aphidsync_logit", (DL_FUNC) &_aphidsync_logit, 1},
+    {"_aphidsync_inv_logit", (DL_FUNC) &_aphidsync_inv_logit, 1},
     {"_aphidsync_beta_starts", (DL_FUNC) &_aphidsync_beta_starts, 4},
     {"_aphidsync_make_L1", (DL_FUNC) &_aphidsync_make_L1, 2},
     {"_aphidsync_sim_re", (DL_FUNC) &_aphidsync_sim_re, 4},
