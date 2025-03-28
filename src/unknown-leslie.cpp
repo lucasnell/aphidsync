@@ -56,7 +56,7 @@ double unknown_fit_aphids0(const arma::vec& pars,
      L.row(0).tail(N_STAGES - ADULT_STAGE + 1) *= x;
 
      // Simulate with given parameters:
-     arma::vec re_pred = sim_re(aphids0, L, time, REAL_K);
+     arma::vec re_pred = sim_re_cpp(aphids0, L, time, REAL_K);
 
      if (re_pred.n_elem != (time.n_elem-1)) {
          re_pred = re_pred(time.head(time.n_elem-1));

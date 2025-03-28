@@ -44,3 +44,39 @@ arma::mat make_L1(const double& shape, const double& scale) {
     return L;
 }
 
+
+
+
+//' Simulate per-capita growth.
+//'
+//' @export
+//' @noRd
+//[[Rcpp::export]]
+arma::vec sim_re(const arma::vec& aphids0,
+                 const arma::mat& L,
+                 const arma::uvec& time,
+                 const double& K) {
+    if (aphids0.n_elem != L.n_rows || aphids0.n_elem!= L.n_cols) {
+        stop("aphids0 length must equal nrows and ncols of L");
+    }
+    if (K <= 0) stop("K must be > 0");
+    arma::vec out = sim_re_cpp(aphids0, L, time, K);
+    return out;
+}
+
+//' Simulate abundance.
+//'
+//' @export
+//' @noRd
+//[[Rcpp::export]]
+arma::vec sim_N(const arma::vec& aphids0,
+                const arma::mat& L,
+                const arma::uvec& time,
+                const double& K) {
+    if (aphids0.n_elem != L.n_rows || aphids0.n_elem!= L.n_cols) {
+        stop("aphids0 length must equal nrows and ncols of L");
+    }
+    if (K <= 0) stop("K must be > 0");
+    arma::vec out = sim_N_cpp(aphids0, L, time, K);
+    return out;
+}

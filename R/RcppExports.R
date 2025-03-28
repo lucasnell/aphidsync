@@ -19,6 +19,22 @@ make_L1 <- function(shape, scale) {
     .Call(`_aphidsync_make_L1`, shape, scale)
 }
 
+#' Simulate per-capita growth.
+#'
+#' @export
+#' @noRd
+sim_re <- function(aphids0, L, time, K) {
+    .Call(`_aphidsync_sim_re`, aphids0, L, time, K)
+}
+
+#' Simulate abundance.
+#'
+#' @export
+#' @noRd
+sim_N <- function(aphids0, L, time, K) {
+    .Call(`_aphidsync_sim_N`, aphids0, L, time, K)
+}
+
 #' @export
 #' @noRd
 unknown_fit_aphids0 <- function(pars, re, time, max_f, fit_survs, max_shape) {

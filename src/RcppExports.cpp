@@ -54,6 +54,34 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// sim_re
+arma::vec sim_re(const arma::vec& aphids0, const arma::mat& L, const arma::uvec& time, const double& K);
+RcppExport SEXP _aphidsync_sim_re(SEXP aphids0SEXP, SEXP LSEXP, SEXP timeSEXP, SEXP KSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::vec& >::type aphids0(aphids0SEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type L(LSEXP);
+    Rcpp::traits::input_parameter< const arma::uvec& >::type time(timeSEXP);
+    Rcpp::traits::input_parameter< const double& >::type K(KSEXP);
+    rcpp_result_gen = Rcpp::wrap(sim_re(aphids0, L, time, K));
+    return rcpp_result_gen;
+END_RCPP
+}
+// sim_N
+arma::vec sim_N(const arma::vec& aphids0, const arma::mat& L, const arma::uvec& time, const double& K);
+RcppExport SEXP _aphidsync_sim_N(SEXP aphids0SEXP, SEXP LSEXP, SEXP timeSEXP, SEXP KSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::vec& >::type aphids0(aphids0SEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type L(LSEXP);
+    Rcpp::traits::input_parameter< const arma::uvec& >::type time(timeSEXP);
+    Rcpp::traits::input_parameter< const double& >::type K(KSEXP);
+    rcpp_result_gen = Rcpp::wrap(sim_N(aphids0, L, time, K));
+    return rcpp_result_gen;
+END_RCPP
+}
 // unknown_fit_aphids0
 double unknown_fit_aphids0(const arma::vec& pars, const arma::vec& re, const arma::uvec& time, const double& max_f, const bool& fit_survs, const double& max_shape);
 RcppExport SEXP _aphidsync_unknown_fit_aphids0(SEXP parsSEXP, SEXP reSEXP, SEXP timeSEXP, SEXP max_fSEXP, SEXP fit_survsSEXP, SEXP max_shapeSEXP) {
@@ -75,6 +103,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_aphidsync_known_fit_aphids0", (DL_FUNC) &_aphidsync_known_fit_aphids0, 7},
     {"_aphidsync_beta_starts", (DL_FUNC) &_aphidsync_beta_starts, 4},
     {"_aphidsync_make_L1", (DL_FUNC) &_aphidsync_make_L1, 2},
+    {"_aphidsync_sim_re", (DL_FUNC) &_aphidsync_sim_re, 4},
+    {"_aphidsync_sim_N", (DL_FUNC) &_aphidsync_sim_N, 4},
     {"_aphidsync_unknown_fit_aphids0", (DL_FUNC) &_aphidsync_unknown_fit_aphids0, 6},
     {NULL, NULL, 0}
 };

@@ -100,10 +100,10 @@ inline arma::vec beta_starts_cpp(const double& shape,
 
 
 // Simulate values of per-capita growth to be compared to observed values
-inline arma::vec sim_re(const arma::vec& aphids0,
-                        const arma::mat& L,
-                        const arma::uvec& time,
-                        const double& K) {
+inline arma::vec sim_re_cpp(const arma::vec& aphids0,
+                            const arma::mat& L,
+                            const arma::uvec& time,
+                            const double& K) {
 
     uint32_t max_t = arma::max(time) + 1;
 
@@ -124,6 +124,8 @@ inline arma::vec sim_re(const arma::vec& aphids0,
     // If `re_pred` doesn't match length of `time` -1, then use `time` as a
     // vector of indices
     if (re_pred.n_elem != (time.n_elem-1)) {
+        // This should never happen, but just in case:
+        if (re_pred.n_elem < (time.n_elem-1)) stop("re_pred.n_elem < (time.n_elem-1)");
         re_pred = re_pred(time.head(time.n_elem-1));
     }
 
@@ -133,10 +135,10 @@ inline arma::vec sim_re(const arma::vec& aphids0,
 
 
 // Simulate abundances (summed across stages) to be compared to observed values
-inline arma::vec sim_N(const arma::vec& aphids0,
-                       const arma::mat& L,
-                       const arma::uvec& time,
-                       const double& K) {
+inline arma::vec sim_N_cpp(const arma::vec& aphids0,
+                           const arma::mat& L,
+                           const arma::uvec& time,
+                           const double& K) {
 
     uint32_t max_t = arma::max(time) + 1;
 
@@ -154,7 +156,11 @@ inline arma::vec sim_N(const arma::vec& aphids0,
 
     // If `N_pred` doesn't match length of `time`, then use `time` as a
     // vector of indices
-    if (N_pred.n_elem != time.n_elem) N_pred = N_pred(time);
+    if (N_pred.n_elem != time.n_elem) {
+        // This should never happen, but just in case:
+        if (N_pred.n_elem < time.n_elem) stop("N_pred.n_elem < time.n_elem");
+        N_pred = N_pred(time);
+    }
 
     return N_pred;
 
