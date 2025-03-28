@@ -1,7 +1,6 @@
 
 suppressPackageStartupMessages({
     library(tidyverse)
-    library(viridisLite)
     library(gameofclones)
     library(aphidsync)
     library(future.apply)
@@ -21,13 +20,16 @@ if (interactive() && file.exists(".Rprofile")) source(".Rprofile")
 # Files created here to store simulation data:
 rds_files <- list(known = "_data/known_fit_df.rds",
                   vary_fs = "_data/vary_fs_fit_df.rds",
+                  vary_fs_samp34 = "_data/vary_fs_samp34_fit_df.rds",
+                  vary_fs_term = "_data/vary_fs_term_fit_df.rds",
                   vary_fs_knownK = "_data/vary_fs_knownK_fit_df.rds",
                   vary_fs_N = "_data/vary_fs_N_fit_df.rds")
 
 
-col_pal <- c(resistant = viridis(100)[50],
-             susceptible = viridis(100)[95],
-             wasp = viridis(100)[1])
+col_pal <- c(resistant = "#218F8DFF",
+             susceptible = "#DDE318FF",
+             wasp = "#440154FF")
+
 
 param_lvls <- c("shape", "offset", "K", "med_age", "width99")
 
@@ -65,6 +67,8 @@ line_s$density_0 <- line_s$density_0 / sum(line_s$density_0) * 32
 #                       repro_apterous = "low",
 #                       p_instar_smooth = 0)
 # for(i in 1:3) line_r$leslie[1,,i] <- 0.8 * line_r$leslie[1,,i]
+
+
 
 
 
@@ -229,9 +233,12 @@ fit_sims <- function(sim_df, L, K, max_shape = 800,
     # If not provided as a known value, estimate K from time series and
     # Leslie matrix:
     if (is.na(K)) {
-        pred_K <- median(sim_df$N[sim_df$time > 100]) /
+        # Note: simulations showed that `mean(N)` (versus `median(N)`,
+        # `exp(mean(log(N)))`, or `exp(median(log(N)))`) works best for
+        # this prediction. This is true also with measurement error.
+        pred_K <- mean(sim_df$N[sim_df$time > 100]) /
             (max(abs(eigen(L)[["values"]])) - 1)
-        if (is.na(pred_K)) stop("is.na(pred_K)")
+        if (is.na(pred_K)) return("is.na(pred_K)")
     } else pred_K <- K
 
     # Do optimization using winnowing approach
@@ -264,13 +271,14 @@ fit_sims <- function(sim_df, L, K, max_shape = 800,
 
 # Test 1 simulation fit for a single fecundity and survival combination
 test_sim <- function(i, .L, .sd_error, .known_K, .compare_N, .fit_max_t,
-                     .optim_args = list()) {
+                     .sample_filter, .optim_args = list()) {
     shape <- runif(1, 0.5, 6)
     offset <- runif(1, 0, 1)
     K <- runif(1, 1000, 5000)
     .K <- ifelse(.known_K, K, NA_real_)
     # Simulate `line_s`, but fit using altered `.line`:
-    sim_df <- sim_aphids(shape, offset, K, line_s, sd_error = .sd_error)
+    sim_df <- sim_aphids(shape, offset, K, line_s, sd_error = .sd_error,
+                         sample_filter = .sample_filter)
     fits <- fit_sims(sim_df = sim_df, L = .L, K = .K,
                      compare_N = .compare_N,
                      fit_max_t = .fit_max_t, optim_args = .optim_args)
@@ -278,23 +286,27 @@ test_sim <- function(i, .L, .sd_error, .known_K, .compare_N, .fit_max_t,
         if (fits == "multiple models") {
             stop(sprintf(paste("Multiple equally well-fitted models with",
                                "different parameter values for",
-                               "shape = %s and offset = %s"), shape, offset))
+                               "shape = %s and offset = %s\n"), shape, offset))
         }
         if (fits == "no converged") {
-            stop(sprintf("is.null(op)\n shape = %s\n offset = %s",
+            stop(sprintf("is.null(op)\n shape = %s\n offset = %s\n",
                          shape, offset))
         }
         if (fits == "low rows") {
-            stop(sprintf("nrow(sim_df) < 3L\n shape = %s\n offset = %s",
+            stop(sprintf("nrow(sim_df) < 3L\n shape = %s\n offset = %s\n",
                          shape, offset))
         }
         if (fits == "not a model") {
-            stop(sprintf("!is.list(op)\n shape = %s\n offset = %s",
+            stop(sprintf("!is.list(op)\n shape = %s\n offset = %s\n",
                          shape, offset))
         }
         if (fits == "not converged") {
-            stop(sprintf("op[[\"convergence\"]] != 0\n shape = %s\n offset = %s",
+            stop(sprintf("op[[\"convergence\"]] != 0\n shape = %s\n offset = %s\n",
                          shape, offset))
+        }
+        if (fits == "is.na(pred_K)") {
+            stop(sprintf("is.na(pred_K)\n shape = %s\n offset = %s\n K = %s\n",
+                         shape, offset, K))
         }
     }
     if (any(is.na(fits))) {
@@ -311,7 +323,7 @@ test_sim <- function(i, .L, .sd_error, .known_K, .compare_N, .fit_max_t,
 
 # Test all 100 simulation fits for a single fecundity and survival combination
 test_all_sims <- function(n_sims, .surv_x = 0, .fecund_x = 1, sd_error = 0,
-                          known_K = FALSE,
+                          known_K = FALSE, sample_filter = FALSE,
                           compare_N = FALSE, fit_max_t = 30L,
                           optim_args = list()) {
     L <- line_s$leslie[,,1]
@@ -324,6 +336,7 @@ test_all_sims <- function(n_sims, .surv_x = 0, .fecund_x = 1, sd_error = 0,
     out <- future_lapply(1:n_sims, function(i) {
         ifits <- test_sim(i, .L = L, .sd_error = sd_error, .known_K = known_K,
                           .compare_N = compare_N, .fit_max_t = fit_max_t,
+                          .sample_filter = sample_filter,
                           .optim_args = optim_args)
         p()
         return(ifits)
@@ -380,8 +393,6 @@ if (overwrite || ! file.exists(rds_files$vary_fs)) {
 
 
 
-# LEFT OFF ----
-
 # Vary fecundities and survivals with known K:
 # Takes 19.2 min
 if (overwrite || ! file.exists(rds_files$vary_fs_knownK)) {
@@ -401,6 +412,154 @@ if (overwrite || ! file.exists(rds_files$vary_fs_knownK)) {
     write_rds(vary_fs_knownK_fit_df, rds_files$vary_fs_knownK)
     print(t1 - t0); rm(t0, t1)
 } else vary_fs_knownK_fit_df <- read_rds(rds_files$vary_fs_knownK)
+
+
+
+
+# Vary fecundities and survivals, and sample every 3-4 days:
+# Takes 45 min
+if (overwrite || ! file.exists(rds_files$vary_fs_samp34)) {
+    t0 <- Sys.time()
+    set.seed(274085304)
+    vary_fs_samp34_fit_df <- crossing(.surv_x = c(-1, 0, 1),
+                                      .fecund_x = c(0.8, 1, 1.2)) |>
+        pmap_dfr(\(.surv_x, .fecund_x) {
+            out <- test_all_sims(100L, .surv_x, .fecund_x,
+                                 sample_filter = TRUE,
+                                 optim_args = optim_args__)
+            cat(sprintf("finished surv_x = %.1f, fecund_x = %.1f\n",
+                        .surv_x, .fecund_x))
+            return(out)
+        })
+    t1 <- Sys.time()
+    write_rds(vary_fs_samp34_fit_df, rds_files$vary_fs_samp34)
+    print(t1 - t0); rm(t0, t1)
+} else vary_fs_samp34_fit_df <- read_rds(rds_files$vary_fs_samp34)
+
+
+
+# LEFT OFF ----
+#'
+#' I'm trying to simulate and test fitting when reproduction is terminal only
+#' (i.e., only happens in the last stage).
+#' When I do this using 29 stages and repro only in the last stage, I get
+#' numerical issues when I use a reproduction value in that last cell
+#' that results in a leslie matrix with a lambda value equal to that from
+#' the default leslie matrix.
+#' For testing this idea, I therefore think I should use only 5 stages,
+#' but this will require a lot of re-coding.
+#'
+
+.surv_x = -1
+.fecund_x = 0.8
+
+shape = 5.79532258792946
+offset = 0.502491704541788
+K = 2555.58761944115
+sim_df <- sim_aphids(shape, offset, K, line_s, sd_error = FALSE,
+                     sample_filter = FALSE)
+sim_df
+
+# L <- line_s$leslie[,,1]
+# L[1,29] <- 10e3
+# L[1,9:28] <- 0
+
+L <- matrix(0, 5, 5)
+L[1,5] <- 100
+L[row(L) - col(L) == 1] <- 0.95 + 0:3*0.015
+gameofclones:::sad_leslie(L)
+max(abs(eigen(L, only.values = TRUE)[["values"]]))
+
+# if (.surv_x != 0 || .fecund_x != 1) {
+#     survs <- inv_logit(logit(L[row(L) - col(L) == 1]) + .surv_x)
+#     L[row(L) - col(L) == 1] <- survs
+#     L[1,9:29] <- L[1,9:29] * .fecund_x
+# }
+
+X <- beta_starts(shape, offset, sum(line_s$density_0), nrow(line_s$density_0))
+
+N <- numeric(251L)
+N[1] <- sum(X)
+
+for (t in 1:250) {
+    S <- 1 / (1 + N[t] / K)
+    X <- S * (L %*% X)
+    N[t+1] <- sum(X)
+}
+
+
+
+.line <- line_s
+.line$density_0[,1] <- beta_starts(shape, offset, sum(.line$density_0),
+                                   nrow(.line$density_0))
+.line$density_0[,2] <- 0.0
+
+sim_df <- gameofclones:::sim_gameofclones_full(.line,
+                                               n_fields = 1,
+                                               n_plants = 1,
+                                               max_t = 250,
+                                               plant_check_gaps = 1,
+                                               wilted_N = 1e6,
+                                               mean_K = K,  # 1800,
+                                               clear_surv = 0,
+                                               wasp_density_0 = 0,
+                                               wasp_delay = 8,
+                                               mum_smooth = 0,
+                                               aphid_plant_disp_p = 0.1,
+                                               plant_disp_mort = 0,
+                                               wilted_mort = 0.3,
+                                               extinct_N = 1,
+                                               alate_b0 = -1e6,
+                                               alate_b1 = 0) |>
+    getElement("aphids") |>
+    # group by aphid line and time (rep and field have only 1 option):
+    filter(type != "mummy") |>
+    group_by(time, line) |>
+    summarize(N = sum(N), .groups = "drop")
+
+fits <- fit_sims(sim_df = sim_df, L = .L, K = .K,
+                 compare_N = .compare_N,
+                 fit_max_t = .fit_max_t, optim_args = .optim_args)
+
+
+
+
+
+
+# Vary fecundities and survivals, and have only terminal reproduction:
+# Takes XX min
+if (overwrite || ! file.exists(rds_files$vary_fs_term)) {
+    # Change `line_s` to have only terminal repro:
+    line_s$leslie[1,29,1] <- 389478 # results in the same lambda
+    line_s$leslie[1,9:28,1] <- 0
+    t0 <- Sys.time()
+    set.seed(906618959)
+    vary_fs_term_fit_df <- crossing(.surv_x = c(-1, 0, 1),
+                                    .fecund_x = c(0.8, 1, 1.2)) |>
+        pmap_dfr(\(.surv_x, .fecund_x) {
+            out <- test_all_sims(100L, .surv_x, .fecund_x,
+                                 optim_args = optim_args__)
+            cat(sprintf("finished surv_x = %.1f, fecund_x = %.1f\n",
+                        .surv_x, .fecund_x))
+            return(out)
+        })
+    t1 <- Sys.time()
+    write_rds(vary_fs_term_fit_df, rds_files$vary_fs_term)
+    print(t1 - t0); rm(t0, t1)
+    # Change `line_s` back:
+    line_s <- clonal_line("susceptible",
+                          density_0 = 32,
+                          # surv_juv_apterous = "high",
+                          # surv_adult_apterous = "high",
+                          # repro_apterous = "high")
+                          surv_juv_apterous = "low",
+                          surv_adult_apterous = "low",
+                          repro_apterous = "low",
+                          p_instar_smooth = 0)
+    # avoids weird rounding issue when `p_instar_smooth` = 0:
+    line_s$density_0 <- line_s$density_0 / sum(line_s$density_0) * 32
+} else vary_fs_term_fit_df <- read_rds(rds_files$vary_fs_term)
+
 
 
 #### >>>> More evaluations per box wasn't useful!! <<<<
@@ -531,6 +690,19 @@ vary_fs_fit_ps[["width99"]]
 vary_fs_fit_ps[["med_age"]]
 vary_fs_fit_ps[["offset"]]
 vary_fs_fit_ps[["K"]]
+
+vary_fs_samp34_fit_ps <- param_lvls |>
+    set_names() |>
+    map(vary_fs_plotter, .df = vary_fs_samp34_fit_df)
+
+vary_fs_samp34_fit_ps[["width99"]] +
+vary_fs_samp34_fit_ps[["med_age"]] +
+vary_fs_samp34_fit_ps[["offset"]] +
+vary_fs_samp34_fit_ps[["K"]] +
+    plot_layout(nrow = 2) &
+    theme(strip.text = element_text(size = 6),
+          axis.title = element_text(size = 8),
+          axis.text = element_text(size = 6))
 
 
 # for (p in c("width99", "offset", "K", "p_repro")) {
