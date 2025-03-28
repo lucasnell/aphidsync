@@ -11,20 +11,35 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
-// known_fit_aphids0
-double known_fit_aphids0(const arma::vec& pars, const double& K, const arma::mat& L, const arma::vec& obs, const arma::uvec& time, const double& max_shape, const bool& compare_N);
-RcppExport SEXP _aphidsync_known_fit_aphids0(SEXP parsSEXP, SEXP KSEXP, SEXP LSEXP, SEXP obsSEXP, SEXP timeSEXP, SEXP max_shapeSEXP, SEXP compare_NSEXP) {
+// make_known_fit_ptr
+SEXP make_known_fit_ptr(const double& K, const arma::mat& L, const arma::vec& obs, const arma::uvec& time, const double& max_shape, const double& N0, const bool& compare_N);
+RcppExport SEXP _aphidsync_make_known_fit_ptr(SEXP KSEXP, SEXP LSEXP, SEXP obsSEXP, SEXP timeSEXP, SEXP max_shapeSEXP, SEXP N0SEXP, SEXP compare_NSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const arma::vec& >::type pars(parsSEXP);
     Rcpp::traits::input_parameter< const double& >::type K(KSEXP);
     Rcpp::traits::input_parameter< const arma::mat& >::type L(LSEXP);
     Rcpp::traits::input_parameter< const arma::vec& >::type obs(obsSEXP);
     Rcpp::traits::input_parameter< const arma::uvec& >::type time(timeSEXP);
     Rcpp::traits::input_parameter< const double& >::type max_shape(max_shapeSEXP);
+    Rcpp::traits::input_parameter< const double& >::type N0(N0SEXP);
     Rcpp::traits::input_parameter< const bool& >::type compare_N(compare_NSEXP);
-    rcpp_result_gen = Rcpp::wrap(known_fit_aphids0(pars, K, L, obs, time, max_shape, compare_N));
+    rcpp_result_gen = Rcpp::wrap(make_known_fit_ptr(K, L, obs, time, max_shape, N0, compare_N));
+    return rcpp_result_gen;
+END_RCPP
+}
+// known_fit_aphids0
+double known_fit_aphids0(const arma::vec& pars, SEXP fit_info_ptr);
+RcppExport SEXP _aphidsync_known_fit_aphids0(SEXP parsSEXP, SEXP fit_info_ptrSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::vec& >::type pars(parsSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type fit_info_ptr(fit_info_ptrSEXP);
+    rcpp_result_gen = Rcpp::wrap(known_fit_aphids0(pars, fit_info_ptr));
+    return rcpp_result_gen;
+END_RCPP
+}
 // calc_lambda
 double calc_lambda(const arma::mat& L);
 RcppExport SEXP _aphidsync_calc_lambda(SEXP LSEXP) {
@@ -154,7 +169,8 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_aphidsync_known_fit_aphids0", (DL_FUNC) &_aphidsync_known_fit_aphids0, 7},
+    {"_aphidsync_make_known_fit_ptr", (DL_FUNC) &_aphidsync_make_known_fit_ptr, 7},
+    {"_aphidsync_known_fit_aphids0", (DL_FUNC) &_aphidsync_known_fit_aphids0, 2},
     {"_aphidsync_calc_lambda", (DL_FUNC) &_aphidsync_calc_lambda, 1},
     {"_aphidsync_width99", (DL_FUNC) &_aphidsync_width99, 1},
     {"_aphidsync_med_age", (DL_FUNC) &_aphidsync_med_age, 3},
