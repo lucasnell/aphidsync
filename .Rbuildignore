@@ -11,3 +11,4 @@
 ^_data$
 ^.*\.rds$
 ^data-raw$
+^_from-mag$

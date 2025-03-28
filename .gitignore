@@ -26,3 +26,4 @@ rsconnect/
 *.rds
 
 _figures/*
+_from-mag/*

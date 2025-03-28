@@ -179,7 +179,8 @@ winnowing_optim <- function(fn,
             .val <- do.call(fn, c(list(.pars), fn_args))
             evals_i[j,] <- c(.pars, .val)
         }
-        best_idx <- which(evals_i[,n_pars+1] == min(evals_i[,n_pars+1]))[[1]]
+        min_evals <- min(evals_i[,n_pars+1], na.rm = TRUE)
+        best_idx <- which(evals_i[,n_pars+1] == min_evals)[[1]]
         best_pars <- evals_i[best_idx, 1:n_pars]
         op <- run_optim(box_optim, best_pars, fn, box_control, fn_args)
 
