@@ -2,6 +2,7 @@
 
 export(beta_starts)
 export(calc_lambda)
+export(fit_known_leslie)
 export(inv_logit)
 export(known_fit_aphids0)
 export(logit)
