@@ -7,15 +7,15 @@
 #'
 #' @export
 #' @noRd
-make_known_fit_ptr <- function(K, L, obs, time, max_shape, N0 = 32.0, compare_N = FALSE) {
-    .Call(`_aphidsync_make_known_fit_ptr`, K, L, obs, time, max_shape, N0, compare_N)
+make_known_fit_ptr <- function(K, L, obs, time, max_shape, N0, compare_N, trans_base) {
+    .Call(`_aphidsync_make_known_fit_ptr`, K, L, obs, time, max_shape, N0, compare_N, trans_base)
 }
 
 #' This function scales parameters as follows (in order):
 #'
-#' 1. shape = exp(pars(0))
+#' 1. shape = trans_base^(pars(0)) + 1
 #' 2. offset = inv_logit(pars(1))
-#' 3. fecund_x = exp(pars(2))
+#' 3. fecund_x = trans_base^(pars(2))
 #' 4. surv_x = inv_logit(pars(3))**
 #'
 #' ** surv_x is added to logit-transformed survivals before back-transforming

@@ -12,8 +12,8 @@ Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
 // make_known_fit_ptr
-SEXP make_known_fit_ptr(const double& K, const arma::mat& L, const arma::vec& obs, const arma::uvec& time, const double& max_shape, const double& N0, const bool& compare_N);
-RcppExport SEXP _aphidsync_make_known_fit_ptr(SEXP KSEXP, SEXP LSEXP, SEXP obsSEXP, SEXP timeSEXP, SEXP max_shapeSEXP, SEXP N0SEXP, SEXP compare_NSEXP) {
+SEXP make_known_fit_ptr(const double& K, const arma::mat& L, const arma::vec& obs, const arma::uvec& time, const double& max_shape, const double& N0, const bool& compare_N, const double& trans_base);
+RcppExport SEXP _aphidsync_make_known_fit_ptr(SEXP KSEXP, SEXP LSEXP, SEXP obsSEXP, SEXP timeSEXP, SEXP max_shapeSEXP, SEXP N0SEXP, SEXP compare_NSEXP, SEXP trans_baseSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -24,7 +24,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< const double& >::type max_shape(max_shapeSEXP);
     Rcpp::traits::input_parameter< const double& >::type N0(N0SEXP);
     Rcpp::traits::input_parameter< const bool& >::type compare_N(compare_NSEXP);
-    rcpp_result_gen = Rcpp::wrap(make_known_fit_ptr(K, L, obs, time, max_shape, N0, compare_N));
+    Rcpp::traits::input_parameter< const double& >::type trans_base(trans_baseSEXP);
+    rcpp_result_gen = Rcpp::wrap(make_known_fit_ptr(K, L, obs, time, max_shape, N0, compare_N, trans_base));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -169,7 +170,7 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_aphidsync_make_known_fit_ptr", (DL_FUNC) &_aphidsync_make_known_fit_ptr, 7},
+    {"_aphidsync_make_known_fit_ptr", (DL_FUNC) &_aphidsync_make_known_fit_ptr, 8},
     {"_aphidsync_known_fit_aphids0", (DL_FUNC) &_aphidsync_known_fit_aphids0, 2},
     {"_aphidsync_calc_lambda", (DL_FUNC) &_aphidsync_calc_lambda, 1},
     {"_aphidsync_width99", (DL_FUNC) &_aphidsync_width99, 1},

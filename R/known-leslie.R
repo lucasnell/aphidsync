@@ -1,4 +1,27 @@
 
+
+# Function to convert from scale of interest to that for fitting:
+trans_pars <- function(pars, trans_base) {
+    if (!length(pars) %in% 2:4) stop("length(pars) should be 2, 3, or 4")
+    pars[[1L]] <- log(pars[[1L]] - 1.0, trans_base)
+    pars[[2L]] <- logit(pars[[2L]])
+    if (length(pars) > 2) pars[[3L]] <- log(pars[[3L]], trans_base)
+    return(pars)
+}
+
+# Function to convert from scale of fitting to that of interest:
+# (I'm not transforming 4th parameter (if there is one) bc its use isn't
+# straightforward; see description above `known_fit_aphids0` for more info.)
+inv_trans_pars <- function(pars, trans_base) {
+    if (!length(pars) %in% 2:4) stop("length(pars) should be 2, 3, or 4")
+    pars[[1L]] <-trans_base^pars[[1L]] + 1.0
+    pars[[2L]] <- inv_logit(pars[[2L]])
+    if (length(pars) > 2) pars[[3L]] <-trans_base^pars[[3L]]
+    return(pars)
+}
+
+
+
 #' Fit starting abundance for known Leslie matrix (optionally with uncertainty)
 #'
 #' @param sim_df A dataframe containing the time and abundance columns.
@@ -28,10 +51,24 @@
 #'     density dependence. Defaults to `50L`.
 #' @param est_K_min_n Single integer for the number of time steps to use
 #'     for estimating density dependence. Defaults to `50L`.
+#' @param max_leslie_x Single numeric for the maximum value of `leslie_x` to
+#'     search for within `winnowing_optim`.
+#'     Parameter `leslie_x` is the value that gets multiplied by
+#'     the entire Leslie matrix when adjusting the Leslie matrix using
+#'     1 parameter (i.e., `adjust_L = 1L`). Ignored if `adjust_L != 1L`.
+#'     Defaults to `10`.
 #' @param max_fecund_x Single numeric for the maximum value of `fecund_x` to
-#'     allow. Parameter `fecund_x` is the value that gets multiplied by
-#'     fecundities when adjusting the Leslie matrix.
-#'     Defaults to `100`.
+#'     search for within `winnowing_optim`.
+#'     Parameter `fecund_x` is the value that gets multiplied by
+#'     fecundities when adjusting the Leslie matrix using
+#'     2 parameters (i.e., `adjust_L = 2L`). Ignored if `adjust_L != 2L`.
+#'     Defaults to `10`.
+#' @param max_surv_x Single numeric for the maximum absolute value of `surv_x`
+#'     to search for within `winnowing_optim`.
+#'     Parameter `surv_x` is the value that gets added to
+#'     logit-transformed survivals when adjusting the Leslie matrix using
+#'     2 parameters (i.e., `adjust_L = 2L`). Ignored if `adjust_L != 2L`.
+#'     Defaults to `10`.
 #' @param trans_base Single numeric indicating the base to use for
 #'     transforming the shape and (optionally) `fecund_x` parameters when
 #'     fitting.
@@ -55,7 +92,9 @@ fit_known_leslie <- function(sim_df, L, N0,
                              fit_max_t = 30L,
                              est_K_start = 50L,
                              est_K_min_n = 50L,
-                             max_fecund_x = 100,
+                             max_leslie_x = 10,
+                             max_fecund_x = 10,
+                             max_surv_x = 10,
                              trans_base = 1.36,
                              optim_args = list()) {
 
@@ -75,6 +114,7 @@ fit_known_leslie <- function(sim_df, L, N0,
     type_checker(est_K_start, "est_K_start", "integer", .min = 1L)
     type_checker(est_K_min_n, "est_K_min_n", "integer", .min = 1L)
     type_checker(max_fecund_x, "max_fecund_x", "numeric", .min = 2 * VERY_SMALL)
+    # note on line below: 1+VERY_SMALL is too small!
     type_checker(trans_base, "trans_base", "numeric", .min = 1 + 1e-6)
     type_checker(optim_args, "optim_args", "list", l = NA)
 
@@ -119,15 +159,19 @@ fit_known_leslie <- function(sim_df, L, N0,
                                   max_shape = max_shape, N0 = N0,
                                   compare_N = compare_N, trans_base = trans_base)
 
+
     # Do optimization using winnowing approach
     op_args <- optim_args
     op_args[["fn"]] <- known_fit_aphids0
-    op_args[["lower_bounds"]] <- c(log(VERY_SMALL, trans_base), logit(VERY_SMALL),
-                                   log(VERY_SMALL, trans_base), logit(VERY_SMALL)) |>
-        base::`[`(1:(2L+adjust_L))
-    op_args[["upper_bounds"]] <- c(log(max_shape, trans_base),  logit(1-VERY_SMALL),
-                                   log(max_fecund_x, trans_base), logit(1-VERY_SMALL)) |>
-        base::`[`(1:(2L+adjust_L))
+    op_args[["lower_bounds"]] <- c(rep(VERY_SMALL, 3) + c(1,0,0), -max_surv_x) |>
+        base::`[`(1:(2L+adjust_L)) |>
+        trans_pars(trans_base = trans_base)
+    op_args[["upper_bounds"]] <- c(max_shape, 1-VERY_SMALL,
+                                   ifelse(adjust_L == 1L, max_leslie_x,
+                                          max_fecund_x),
+                                   max_surv_x) |>
+        base::`[`(1:(2L+adjust_L)) |>
+        trans_pars(trans_base = trans_base)
     op_args[["fn_args"]] <- list(fit_info_ptr = fit_ptr)
 
 
@@ -138,17 +182,9 @@ fit_known_leslie <- function(sim_df, L, N0,
     #  for more info):
     for (i in 1:length(ops)) {
         if (!"par" %in% names(ops[[i]])) stop("unknown output parameter name")
-        ops[[i]][["par"]][[1]] <- trans_base^(ops[[i]][["par"]][[1]])
-        ops[[i]][["par"]][[2]] <- inv_logit(ops[[i]][["par"]][[2]])
-        if (adjust_L > 0L) ops[[i]][["par"]][[3]] <- trans_base^(ops[[i]][["par"]][[3]])
+        ops[[i]][["par"]] <- inv_trans_pars(ops[[i]][["par"]], trans_base)
     }
 
-    op_pars <- sapply(ops, \(x) x$par)
-    safe_meds <- apply(op_pars, 1, \(x) ifelse(median(x) == 0, 1, median(x)))
-    op_diffs <- pmin(apply(op_pars, 1, \(x) diff(range(x)) / safe_meds),
-                     apply(op_pars, 1, \(x) diff(range(x))))
-    if (any(is.na(op_diffs))) stop("any(is.na(op_diffs))")
-    if (max(op_diffs) > 0.01) warning("max(op_diffs) > 0.01")
     op <- ops[[1]]
 
     pars <- c(op$par, K, width99(op$par[[1]]),
@@ -161,9 +197,28 @@ fit_known_leslie <- function(sim_df, L, N0,
         names(pars) <- c("shape", "offset", "fecund_x", "surv_x", "K", "width99", "med_age")
     }
 
+    # This will inform whether the different optimizations returned from
+    # `winnowing_optim` are the same (or roughly so)
+    if (length(ops) > 1) {
+        par_diffs <- sapply(ops[-1], \(o) {
+            sh <- o$par[[1]]
+            of <- o$par[[2]]
+            o_pars <- c(o$par, K, width99(sh), med_age(sh, of, ncol(L)))
+            names(o_pars) <- names(pars)
+            return(o_pars - pars)
+        }) |>
+            apply(1, \(x) { x[which(abs(x) == max(abs(x)))[1]] })
+        if (any(is.na(par_diffs))) stop("any(is.na(par_diffs))")
+    } else par_diffs <- pars * 0 # this way keeps names
+    attr(pars, "par_diffs") <- par_diffs
+
     return(pars)
 
 }
+
+
+
+
 
 
 

@@ -10,6 +10,9 @@
 using namespace Rcpp;
 
 
+
+
+
 struct KnownLeslieFitInfo {
 
     double K;
@@ -20,6 +23,7 @@ struct KnownLeslieFitInfo {
     double N0;
     bool compare_N;
     double trans_base;
+    arma::vec pars_conv; // inverse-transformed parameters
 
 
     KnownLeslieFitInfo(const double& K_,
@@ -38,36 +42,67 @@ struct KnownLeslieFitInfo {
         N0(N0_),
         compare_N(compare_N_),
         trans_base(trans_base_),
+        pars_conv(),
         L0(L_),
-        survs(L_.diag(-1).n_elem) {};
+        survs(L_.diag(-1).n_elem),
+        n_pars(0) {};
 
-    void adjust_L(const double& x) {
+    void adjust_L() {
         L = L0;
-        double z = std::pow(trans_base, x);
-        L *= z;
+        L *= pars_conv(2);
         return;
     }
-    void adjust_fecunds(const double& x) {
+    void adjust_fecunds() {
         L = L0;
-        double z = std::pow(trans_base, x);
-        L.row(0) *= z;
+        L.row(0) *= pars_conv(2);
         return;
     }
-    void adjust_survs(const double& x) {
+    void adjust_survs() {
         L = L0;
         survs = L.diag(-1);
         logit__(survs);
-        survs += x;
+        survs += pars_conv(3);
         inv_logit__(survs);
         L.diag(-1) = survs;
         return;
     }
+
+    /*
+     Convert `pars` from scale of fitting (used in optimizer) to scale
+     of interest (used `sim_re_cpp` and `sim_N_cpp`):
+     Note: This does not transform the 4th parameter (if there is one) bc
+     it can take any value.
+     See description above `known_fit_aphids0` or the inside of function
+     `KnownLeslieFitInfo::adjust_survs` for more info.
+     */
+    void convert_pars(const arma::vec& pars) {
+
+        if (n_pars != pars.n_elem) {
+            n_pars = pars.n_elem;
+            if (n_pars != 2 && n_pars != 3 && n_pars != 4) {
+                stop("length(pars) should be 2, 3, or 4");
+            }
+            pars_conv.set_size(pars.n_elem);
+        }
+
+        // This keeps shapes above 1:
+        pars_conv(0) = std::pow(trans_base, pars(0)) + 1.0;
+        // This keeps offset between 0 and 1:
+        pars_conv(1) = inv_logit__(pars(1));
+        // This keeps Leslie or fecundity multiple above 0:
+        if (n_pars > 2) pars_conv(2) = std::pow(trans_base, pars(2));
+        if (n_pars > 3) pars_conv(3) = pars(3);
+
+        return;
+    }
+
 
 
 private:
 
     arma::mat L0;
     arma::vec survs;
+    uint32_t n_pars;
 
 };
 
@@ -103,7 +138,7 @@ SEXP make_known_fit_ptr(const double& K,
 
 //' This function scales parameters as follows (in order):
 //'
-//' 1. shape = trans_base^(pars(0))
+//' 1. shape = trans_base^(pars(0)) + 1
 //' 2. offset = inv_logit(pars(1))
 //' 3. fecund_x = trans_base^(pars(2))
 //' 4. surv_x = inv_logit(pars(3))**
@@ -123,27 +158,31 @@ double known_fit_aphids0(const arma::vec& pars,
     XPtr<KnownLeslieFitInfo> fit_info_xptr(fit_info_ptr);
     KnownLeslieFitInfo& fit_info(*fit_info_xptr);
 
+    // Convert from scale used by optimizer to scale used here
+    // (stored in `fit_info.pars_conv`):
+    fit_info.convert_pars(pars);
+    const double& shape(fit_info.pars_conv(0));
+    const double& max_shape(fit_info.max_shape);
+    if (shape > max_shape) return BIG_RETURN;
+    const double& offset(fit_info.pars_conv(1));
+
     // Scale entire Leslie matrix if 3 parameters provide:
     if (pars.n_elem == 3) {
-        fit_info.adjust_L(pars(2)); // transformed inside `adjust_L`
+        fit_info.adjust_L(); // will use value in `fit_info.pars_conv`
     }
     // Scale fecundities and survivals separately if 4 parameters provide:
     if (pars.n_elem == 4) {
-        fit_info.adjust_fecunds(pars(2)); // transformed inside `adjust_fecunds`
-        fit_info.adjust_survs(pars(3));
+        // both of these will use values in `fit_info.pars_conv`
+        fit_info.adjust_fecunds();
+        fit_info.adjust_survs();
     }
 
     const double& K(fit_info.K);
     const arma::mat& L(fit_info.L);
     const arma::vec& obs(fit_info.obs);
     const arma::uvec& time(fit_info.time);
-    const double& max_shape(fit_info.max_shape);
     const double& N0(fit_info.N0);
     const bool& compare_N(fit_info.compare_N);
-
-    double shape = std::exp(pars(0));
-    if (shape > max_shape) return BIG_RETURN;
-    double offset = inv_logit__(pars(1));
 
     uint32_t n_stages = L.n_rows;
 

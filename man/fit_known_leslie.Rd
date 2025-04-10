@@ -15,7 +15,10 @@ fit_known_leslie(
   fit_max_t = 30L,
   est_K_start = 50L,
   est_K_min_n = 50L,
-  max_fecund_x = 100,
+  max_leslie_x = 10,
+  max_fecund_x = 10,
+  max_surv_x = 10,
+  trans_base = 1.36,
   optim_args = list()
 )
 }
@@ -57,10 +60,35 @@ density dependence. Defaults to \code{50L}.}
 \item{est_K_min_n}{Single integer for the number of time steps to use
 for estimating density dependence. Defaults to \code{50L}.}
 
+\item{max_leslie_x}{Single numeric for the maximum value of \code{leslie_x} to
+search for within \code{winnowing_optim}.
+Parameter \code{leslie_x} is the value that gets multiplied by
+the entire Leslie matrix when adjusting the Leslie matrix using
+1 parameter (i.e., \code{adjust_L = 1L}). Ignored if \code{adjust_L != 1L}.
+Defaults to \code{10}.}
+
 \item{max_fecund_x}{Single numeric for the maximum value of \code{fecund_x} to
-allow. Parameter \code{fecund_x} is the value that gets multiplied by
-fecundities when adjusting the Leslie matrix.
-Defaults to \code{100}.}
+search for within \code{winnowing_optim}.
+Parameter \code{fecund_x} is the value that gets multiplied by
+fecundities when adjusting the Leslie matrix using
+2 parameters (i.e., \code{adjust_L = 2L}). Ignored if \code{adjust_L != 2L}.
+Defaults to \code{10}.}
+
+\item{max_surv_x}{Single numeric for the maximum absolute value of \code{surv_x}
+to search for within \code{winnowing_optim}.
+Parameter \code{surv_x} is the value that gets added to
+logit-transformed survivals when adjusting the Leslie matrix using
+2 parameters (i.e., \code{adjust_L = 2L}). Ignored if \code{adjust_L != 2L}.
+Defaults to \code{10}.}
+
+\item{trans_base}{Single numeric indicating the base to use for
+transforming the shape and (optionally) \code{fecund_x} parameters when
+fitting.
+Each parameter \code{z} will be transformed as \code{trans_base^z} inside the
+objective function, and back-transformed as \code{log(z, trans_base)}
+in this one.
+Using \code{exp(1)} here seems to cause the optimizer to have a hard time.
+The default for this is \code{1.36}, which is about \code{exp(1) / 2}.}
 
 \item{optim_args}{List containing arguments to pass to \code{winnowing_optim}.
 Defaults to \code{list()}.}
