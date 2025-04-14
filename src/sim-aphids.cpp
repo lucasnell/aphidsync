@@ -38,9 +38,13 @@ arma::vec beta_starts(const double& shape,
 //' @export
 //' @noRd
 //[[Rcpp::export]]
-arma::mat make_L1(const double& shape, const double& scale) {
+arma::mat make_L1(const double& shape,
+                  const double& scale,
+                  const uint32_t& n_stages = 29,
+                  const uint32_t& adult_stage = 9) {
     arma::mat L;
-    make_L1_cpp(L, shape, scale);
+    make_L1_cpp(L, shape, scale, n_stages, adult_stage);
+
     return L;
 }
 

@@ -87,8 +87,8 @@ beta_starts <- function(shape, offset, total_aphids0, compartments = 29L) {
 
 #' @export
 #' @noRd
-make_L1 <- function(shape, scale) {
-    .Call(`_aphidsync_make_L1`, shape, scale)
+make_L1 <- function(shape, scale, n_stages = 29L, adult_stage = 9L) {
+    .Call(`_aphidsync_make_L1`, shape, scale, n_stages, adult_stage)
 }
 
 #' Simulate per-capita growth.

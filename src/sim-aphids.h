@@ -28,14 +28,19 @@ constexpr double REAL_K = 1800;
 // sum to 1. Lambda for this matrix is also 1.
 inline void make_L1_cpp(arma::mat& L,
                         const double& shape,
-                        const double& scale) {
-    if (L.n_rows != N_STAGES || L.n_cols != N_STAGES)
-        L.set_size(N_STAGES, N_STAGES);
+                        const double& scale,
+                        uint32_t n_stages = 0U,
+                        uint32_t adult_stage = 0U) {
+    if (n_stages == 0U) n_stages = N_STAGES;
+    if (adult_stage == 0U) adult_stage = ADULT_STAGE;
+    if (adult_stage > n_stages) stop("adult stage cannot be > number of stages");
+    if (L.n_rows != n_stages || L.n_cols != n_stages)
+        L.set_size(n_stages, n_stages);
     L.zeros();
     L.diag(-1).fill(1);
     double pweib_val, pweib_val0;
     double pweib_diff_sum = 0;
-    uint32_t adult_stages = N_STAGES - ADULT_STAGE + 1;
+    uint32_t adult_stages = n_stages - adult_stage + 1;
     arma::rowvec pweib_diffs(adult_stages, arma::fill::none);
     for (uint32_t i = 0; i <= adult_stages; i++) {
         pweib_val = R::pweibull(i, shape, scale, true, false);

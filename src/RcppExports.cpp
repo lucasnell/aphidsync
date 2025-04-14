@@ -113,14 +113,16 @@ BEGIN_RCPP
 END_RCPP
 }
 // make_L1
-arma::mat make_L1(const double& shape, const double& scale);
-RcppExport SEXP _aphidsync_make_L1(SEXP shapeSEXP, SEXP scaleSEXP) {
+arma::mat make_L1(const double& shape, const double& scale, const uint32_t& n_stages, const uint32_t& adult_stage);
+RcppExport SEXP _aphidsync_make_L1(SEXP shapeSEXP, SEXP scaleSEXP, SEXP n_stagesSEXP, SEXP adult_stageSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< const double& >::type shape(shapeSEXP);
     Rcpp::traits::input_parameter< const double& >::type scale(scaleSEXP);
-    rcpp_result_gen = Rcpp::wrap(make_L1(shape, scale));
+    Rcpp::traits::input_parameter< const uint32_t& >::type n_stages(n_stagesSEXP);
+    Rcpp::traits::input_parameter< const uint32_t& >::type adult_stage(adult_stageSEXP);
+    rcpp_result_gen = Rcpp::wrap(make_L1(shape, scale, n_stages, adult_stage));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -178,7 +180,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_aphidsync_logit", (DL_FUNC) &_aphidsync_logit, 1},
     {"_aphidsync_inv_logit", (DL_FUNC) &_aphidsync_inv_logit, 1},
     {"_aphidsync_beta_starts", (DL_FUNC) &_aphidsync_beta_starts, 4},
-    {"_aphidsync_make_L1", (DL_FUNC) &_aphidsync_make_L1, 2},
+    {"_aphidsync_make_L1", (DL_FUNC) &_aphidsync_make_L1, 4},
     {"_aphidsync_sim_re", (DL_FUNC) &_aphidsync_sim_re, 4},
     {"_aphidsync_sim_N", (DL_FUNC) &_aphidsync_sim_N, 4},
     {"_aphidsync_unknown_fit_aphids0", (DL_FUNC) &_aphidsync_unknown_fit_aphids0, 6},
