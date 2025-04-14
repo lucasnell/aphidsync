@@ -47,11 +47,6 @@ struct KnownLeslieFitInfo {
         survs(L_.diag(-1).n_elem),
         n_pars(0) {};
 
-    void adjust_L() {
-        L = L0;
-        L *= pars_conv(2);
-        return;
-    }
     void adjust_fecunds() {
         L = L0;
         L.row(0) *= pars_conv(2);
@@ -89,7 +84,7 @@ struct KnownLeslieFitInfo {
         pars_conv(0) = std::pow(trans_base, pars(0)) + 1.0;
         // This keeps offset between 0 and 1:
         pars_conv(1) = inv_logit__(pars(1));
-        // This keeps Leslie or fecundity multiple above 0:
+        // This keeps fecundity multiple above 0:
         if (n_pars > 2) pars_conv(2) = std::pow(trans_base, pars(2));
         if (n_pars > 3) pars_conv(3) = pars(3);
 
@@ -141,10 +136,10 @@ SEXP make_known_fit_ptr(const double& K,
 //' 1. shape = trans_base^(pars(0)) + 1
 //' 2. offset = inv_logit(pars(1))
 //' 3. fecund_x = trans_base^(pars(2))
-//' 4. surv_x = inv_logit(pars(3))**
+//' 4. surv_x = pars(3)
 //'
 //' ** surv_x is added to logit-transformed survivals before back-transforming
-//'    using inv_logit, so it's effectively inv_logit transformed here.
+//'    using inv_logit, so it's not directly transformed here.
 //'
 //' @export
 //' @noRd
@@ -166,15 +161,13 @@ double known_fit_aphids0(const arma::vec& pars,
     if (shape > max_shape) return BIG_RETURN;
     const double& offset(fit_info.pars_conv(1));
 
-    // Scale entire Leslie matrix if 3 parameters provide:
-    if (pars.n_elem == 3) {
-        fit_info.adjust_L(); // will use value in `fit_info.pars_conv`
+    // Scale fecundities if 3 or more parameters provided:
+    if (pars.n_elem >= 3) {
+        fit_info.adjust_fecunds(); // will use value in `fit_info.pars_conv`
     }
-    // Scale fecundities and survivals separately if 4 parameters provide:
+    // Also scale survivals if 4 parameters provided:
     if (pars.n_elem == 4) {
-        // both of these will use values in `fit_info.pars_conv`
-        fit_info.adjust_fecunds();
-        fit_info.adjust_survs();
+        fit_info.adjust_survs(); // will use value in `fit_info.pars_conv`
     }
 
     const double& K(fit_info.K);

@@ -32,7 +32,7 @@ inv_trans_pars <- function(pars, trans_base) {
 #' @param adjust_L Single integer for whether and how to fit parameters
 #'     that adjust the Leslie matrix.
 #'     A value of `0L` results in no Leslie adjustment,
-#'     `1L` adjusts the Leslie using 1 parameter (i.e., `L = L * leslie_x`),
+#'     `1L` adjusts the Leslie using 1 parameter (i.e., `L[,1] = L[,1] * fecund_x`),
 #'     and `2L` adjusts the Leslie using separate parameters for
 #'     the fecundities and survivals.
 #'     Fecundities (`f`) are adjusted as `f = f * fecund_x`.
@@ -51,12 +51,6 @@ inv_trans_pars <- function(pars, trans_base) {
 #'     density dependence. Defaults to `50L`.
 #' @param est_K_min_n Single integer for the number of time steps to use
 #'     for estimating density dependence. Defaults to `50L`.
-#' @param max_leslie_x Single numeric for the maximum value of `leslie_x` to
-#'     search for within `winnowing_optim`.
-#'     Parameter `leslie_x` is the value that gets multiplied by
-#'     the entire Leslie matrix when adjusting the Leslie matrix using
-#'     1 parameter (i.e., `adjust_L = 1L`). Ignored if `adjust_L != 1L`.
-#'     Defaults to `10`.
 #' @param max_fecund_x Single numeric for the maximum value of `fecund_x` to
 #'     search for within `winnowing_optim`.
 #'     Parameter `fecund_x` is the value that gets multiplied by
@@ -92,7 +86,6 @@ fit_known_leslie <- function(sim_df, L, N0,
                              fit_max_t = 30L,
                              est_K_start = 50L,
                              est_K_min_n = 50L,
-                             max_leslie_x = 10,
                              max_fecund_x = 10,
                              max_surv_x = 10,
                              trans_base = 1.36,
@@ -167,9 +160,7 @@ fit_known_leslie <- function(sim_df, L, N0,
         base::`[`(1:(2L+adjust_L)) |>
         trans_pars(trans_base = trans_base)
     op_args[["upper_bounds"]] <- c(max_shape, 1-VERY_SMALL,
-                                   ifelse(adjust_L == 1L, max_leslie_x,
-                                          max_fecund_x),
-                                   max_surv_x) |>
+                                   max_fecund_x, max_surv_x) |>
         base::`[`(1:(2L+adjust_L)) |>
         trans_pars(trans_base = trans_base)
     op_args[["fn_args"]] <- list(fit_info_ptr = fit_ptr)
@@ -192,7 +183,7 @@ fit_known_leslie <- function(sim_df, L, N0,
     if (adjust_L == 0L) {
         names(pars) <- c("shape", "offset", "K", "width99", "med_age")
     } else if (adjust_L == 1L) {
-        names(pars) <- c("shape", "offset", "leslie_x", "K", "width99", "med_age")
+        names(pars) <- c("shape", "offset", "fecund_x", "K", "width99", "med_age")
     } else {
         names(pars) <- c("shape", "offset", "fecund_x", "surv_x", "K", "width99", "med_age")
     }

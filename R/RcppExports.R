@@ -16,10 +16,10 @@ make_known_fit_ptr <- function(K, L, obs, time, max_shape, N0, compare_N, trans_
 #' 1. shape = trans_base^(pars(0)) + 1
 #' 2. offset = inv_logit(pars(1))
 #' 3. fecund_x = trans_base^(pars(2))
-#' 4. surv_x = inv_logit(pars(3))**
+#' 4. surv_x = pars(3)
 #'
 #' ** surv_x is added to logit-transformed survivals before back-transforming
-#'    using inv_logit, so it's effectively inv_logit transformed here.
+#'    using inv_logit, so it's not directly transformed here.
 #'
 #' @export
 #' @noRd

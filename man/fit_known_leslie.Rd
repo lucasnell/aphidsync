@@ -15,7 +15,6 @@ fit_known_leslie(
   fit_max_t = 30L,
   est_K_start = 50L,
   est_K_min_n = 50L,
-  max_leslie_x = 10,
   max_fecund_x = 10,
   max_surv_x = 10,
   trans_base = 1.36,
@@ -35,7 +34,7 @@ Requires columns \code{"time"} and \code{"N"}.}
 \item{adjust_L}{Single integer for whether and how to fit parameters
 that adjust the Leslie matrix.
 A value of \code{0L} results in no Leslie adjustment,
-\code{1L} adjusts the Leslie using 1 parameter (i.e., \code{L = L * leslie_x}),
+\code{1L} adjusts the Leslie using 1 parameter (i.e., \code{L[,1] = L[,1] * fecund_x}),
 and \code{2L} adjusts the Leslie using separate parameters for
 the fecundities and survivals.
 Fecundities (\code{f}) are adjusted as \code{f = f * fecund_x}.
@@ -59,13 +58,6 @@ density dependence. Defaults to \code{50L}.}
 
 \item{est_K_min_n}{Single integer for the number of time steps to use
 for estimating density dependence. Defaults to \code{50L}.}
-
-\item{max_leslie_x}{Single numeric for the maximum value of \code{leslie_x} to
-search for within \code{winnowing_optim}.
-Parameter \code{leslie_x} is the value that gets multiplied by
-the entire Leslie matrix when adjusting the Leslie matrix using
-1 parameter (i.e., \code{adjust_L = 1L}). Ignored if \code{adjust_L != 1L}.
-Defaults to \code{10}.}
 
 \item{max_fecund_x}{Single numeric for the maximum value of \code{fecund_x} to
 search for within \code{winnowing_optim}.
