@@ -12,7 +12,8 @@ Encoding: UTF-8
 LazyData: true
 ByteCompile: true
 Imports: 
-    Rcpp (>= 1.0.14)
+    Rcpp (>= 1.0.14),
+    nloptr
 LinkingTo:
     Rcpp,
     RcppArmadillo
