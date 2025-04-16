@@ -7,7 +7,7 @@
 adjust_lambda(
   L,
   lambda,
-  adjust_part = "b",
+  adjust_part = "f",
   max_val = NA,
   direct_l = FALSE,
   precision = 1e-04,
@@ -20,9 +20,9 @@ adjust_lambda(
 \item{lambda}{Single numeric indicating lambda that output matrix will
 be adjusted to.}
 
-\item{adjust_part}{Single character indicating which part(s) of the Leslie
-matrix to adjust. Options are survivals (\code{"s"}), fecundities (\code{"f"}),
-or both (\code{"b"}). Defaults to \code{"b"}.}
+\item{adjust_part}{Single character indicating which part of the Leslie
+matrix to adjust. Options are survivals (\code{"s"}) or fecundities (\code{"f"}).
+Defaults to \code{"f"}.}
 
 \item{max_val}{Single numeric indicating the maximum value of the modifier
 to use to achieve the desired lambda.

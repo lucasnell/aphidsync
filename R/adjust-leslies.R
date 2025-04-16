@@ -4,9 +4,9 @@
 #' @param L Square numeric Leslie matrix that will be adjusted.
 #' @param lambda Single numeric indicating lambda that output matrix will
 #'     be adjusted to.
-#' @param adjust_part Single character indicating which part(s) of the Leslie
-#'     matrix to adjust. Options are survivals (`"s"`), fecundities (`"f"`),
-#'     or both (`"b"`). Defaults to `"b"`.
+#' @param adjust_part Single character indicating which part of the Leslie
+#'     matrix to adjust. Options are survivals (`"s"`) or fecundities (`"f"`).
+#'     Defaults to `"f"`.
 #' @param max_val Single numeric indicating the maximum value of the modifier
 #'     to use to achieve the desired lambda.
 #'     Defaults to `NA`, which results in a very coarse search (by powers of
@@ -33,7 +33,7 @@
 #'
 adjust_lambda <- function(L,
                           lambda,
-                          adjust_part = "b",
+                          adjust_part = "f",
                           max_val = NA,
                           direct_l = FALSE,
                           precision = 1e-4,
@@ -48,14 +48,14 @@ adjust_lambda <- function(L,
     type_checker(precision, "precision", "numeric", .min = 0)
     type_checker(optim_tol, "optim_tol", "numeric", .min = 0)
 
-    adjust_part <- match.arg(tolower(adjust_part), c("b", "s", "f"))
+    adjust_part <- match.arg(tolower(adjust_part), c("f", "s"))
 
-    if (adjust_part == "b") {
+    if (adjust_part == "f") {
         new_L_fun <- function(x) {
-            L <- L * x
+            L[1,] <- L[1,] * x
             return(L)
         }
-    } else if (adjust_part == "s") {
+    } else {
         L2 <- L
         L2[row(L2) - col(L2) == 1 & L2 > 0] <- 1
         if (calc_lambda(L2) < lambda)
@@ -66,11 +66,6 @@ adjust_lambda <- function(L,
             survs <- L[row(L) - col(L) == 1]
             survs <- inv_logit(logit(survs) + x)
             L[row(L) - col(L) == 1] <- survs
-            return(L)
-        }
-    } else {
-        new_L_fun <- function(x) {
-            L[1,] <- L[1,] * x
             return(L)
         }
     }

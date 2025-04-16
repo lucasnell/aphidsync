@@ -18,7 +18,8 @@ fit_known_leslie(
   max_fecund_x = 10,
   max_surv_x = 10,
   trans_base = 1.36,
-  optim_args = list()
+  optim_args = list(),
+  return_optims = FALSE
 )
 }
 \arguments{
@@ -84,6 +85,13 @@ The default for this is \code{1.36}, which is about \code{exp(1) / 2}.}
 
 \item{optim_args}{List containing arguments to pass to \code{winnowing_optim}.
 Defaults to \code{list()}.}
+
+\item{return_optims}{Single logical for whether to return all polished
+optimization objects from \code{winnowing_optim}.
+The alternative is to just return the fitted parameter values with
+a vector indicating the greatest divergence between any of the polished
+fits for each parameter.
+Defaults to \code{FALSE}.}
 }
 \value{
 A named vector indicating the parameter values from the fit.

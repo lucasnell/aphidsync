@@ -48,6 +48,17 @@ run_optim <- function(.optim, .pars, .fn, .control, .fn_args) {
         # No obvious equivalent in `minqa`, so just remove this:
         .args[["control"]][["reltol"]] <- NULL
     }
+    # `lower` and `upper` never belong in the control argument, but sometimes
+    # they can be used in the optimization function itself (depending on the
+    # algorithm):
+    for (n in c("lower", "upper")) {
+        if (!is.null(.args[["control"]][[n]])) {
+            if (n %in% names(formals(.optim))) {
+                .args[[n]] <- .args[["control"]][[n]]
+            }
+            .args[["control"]][[n]] <- NULL
+        }
+    }
     op <- do.call(.optim, .args)
     return(op)
 }

@@ -73,6 +73,12 @@ inv_trans_pars <- function(pars, trans_base) {
 #'     The default for this is `1.36`, which is about `exp(1) / 2`.
 #' @param optim_args List containing arguments to pass to `winnowing_optim`.
 #'     Defaults to `list()`.
+#' @param return_optims Single logical for whether to return all polished
+#'     optimization objects from `winnowing_optim`.
+#'     The alternative is to just return the fitted parameter values with
+#'     a vector indicating the greatest divergence between any of the polished
+#'     fits for each parameter.
+#'     Defaults to `FALSE`.
 #'
 #' @returns A named vector indicating the parameter values from the fit.
 #'
@@ -89,7 +95,8 @@ fit_known_leslie <- function(sim_df, L, N0,
                              max_fecund_x = 10,
                              max_surv_x = 10,
                              trans_base = 1.36,
-                             optim_args = list()) {
+                             optim_args = list(),
+                             return_optims = FALSE) {
 
     # Used for making numbers nearly zero but not quite:
     VERY_SMALL <- max(.Machine$double.eps, .Machine$double.neg.eps)
@@ -110,6 +117,7 @@ fit_known_leslie <- function(sim_df, L, N0,
     # note on line below: 1+VERY_SMALL is too small!
     type_checker(trans_base, "trans_base", "numeric", .min = 1 + 1e-6)
     type_checker(optim_args, "optim_args", "list", l = NA)
+    type_checker(return_optims, "return_optims", "logical")
 
     if (nrow(sim_df) < fit_max_t) {
         stop(sprintf("sim_df has %i rows and fit_max_t = %i",
@@ -175,6 +183,8 @@ fit_known_leslie <- function(sim_df, L, N0,
         if (!"par" %in% names(ops[[i]])) stop("unknown output parameter name")
         ops[[i]][["par"]] <- inv_trans_pars(ops[[i]][["par"]], trans_base)
     }
+
+    if (return_optims) return(ops)
 
     op <- ops[[1]]
 
