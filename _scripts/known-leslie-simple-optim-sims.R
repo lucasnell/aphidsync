@@ -8,23 +8,31 @@ source("_scripts/known-leslie-simple-preamble.R")
 
 
 
+opt_sim_summ_rds <- "_data/opt_sim_df.rds"
+
 
 # =============================================================================*
 # functions ----
 # =============================================================================*
 
 
-one_optim_sim <- function(adjust_L, no_K, n_repros, sigma_s, sigma_f, box_optim,
-                          n_bevals, n_boxes, seed, overwrite) {
+one_optim_sim <- function(adjust_L, box_optim, fine_optim, polished_optim,
+                          n_bevals, seed, overwrite) {
+
+    # adjust_L = 1L; box_optim <- fine_optim <- polished_optim <- "stats::optim";
+    # n_bevals = 100; seed = 46735890; overwrite = FALSE
+    # rm(adjust_L, box_optim, fine_optim, polished_optim, n_bevals, seed,
+    #    overwrite, call_, rds_file, mk_cntrl, conts, funs, t0, t1, sim_df,
+    #    dt, out)
 
     # This is like match.call but includes default arguments and
     # evaluates everything
     call_ <- mget(names(formals()), sys.frame(sys.nframe()))
 
     rds_file <- sprintf("_data/optim_sims/%s.rds",
-                        paste(adjust_L, no_K, n_repros, sigma_s, sigma_f,
-                              box_optim, n_bevals, n_boxes, sep = "_")) |>
-        str_replace_all("::", "-")
+                        paste(adjust_L, box_optim, fine_optim, polished_optim,
+                              n_bevals, sep = "-")) |>
+        str_replace_all("::", "_")
     # Stop this function if no overwriting desired, file exists, and file
     # reads without error or warning:
     if (!overwrite && file.exists(rds_file)) {
@@ -33,58 +41,52 @@ one_optim_sim <- function(adjust_L, no_K, n_repros, sigma_s, sigma_f, box_optim,
         if (!isTRUE(is.na(x))) return(invisible(NULL))
     }
 
-    .bof <- eval(parse(text = box_optim))
-    .bc <- eval(formals(winnowing_optim)[["box_control"]])
-    if (grepl("^nloptr", box_optim)) {
-        VERY_SMALL <- max(.Machine$double.eps, .Machine$double.neg.eps)
-        b <- formals(fit_known_leslie)[["trans_base"]]
-        m <- ifelse(adjust_L == 1L, "max_leslie_x", "max_fecund_x")
-        .bc[["lower"]] <- c(rep(VERY_SMALL, 3) + c(1,0,0),
-                            -formals(fit_known_leslie)[["max_surv_x"]]) |>
-            base::`[`(1:(2L+adjust_L)) |>
-            aphidsync:::trans_pars(trans_base = b)
-        .bc[["upper"]] <- c(100, 1-VERY_SMALL,
-                            formals(fit_known_leslie)[[m]],
-                            formals(fit_known_leslie)[["max_surv_x"]]) |>
-            base::`[`(1:(2L+adjust_L)) |>
-            aphidsync:::trans_pars(trans_base = b)
+    # Make control list for one optimization step:
+    mk_cntrl <- function(.optim_str, .step_str) {
+        cntrl <- eval(formals(winnowing_optim)[[paste0(.step_str, "_control")]])
+        # Add lower and upper bounds for nloptr and minqa optimizations:
+        if (grepl("^nloptr|^minqa", .optim_str)) {
+            VERY_SMALL <- max(.Machine$double.eps, .Machine$double.neg.eps)
+            b <- formals(fit_known_leslie)[["trans_base"]]
+            msx <- formals(fit_known_leslie)[["max_surv_x"]]
+            mfx <- formals(fit_known_leslie)[["max_fecund_x"]]
+            cntrl[["lower"]] <- c(rep(VERY_SMALL, 3) + c(1,0,0), -msx) |>
+                base::`[`(1:(2L+adjust_L)) |>
+                aphidsync:::trans_pars(trans_base = b)
+            cntrl[["upper"]] <- c(100, 1-VERY_SMALL, mfx, msx) |>
+                base::`[`(1:(2L+adjust_L)) |>
+                aphidsync:::trans_pars(trans_base = b)
+        }
+        return(cntrl)
     }
+    # Control lists for each optimization step:
+    conts <- mapply(mk_cntrl, c(box_optim, fine_optim, polished_optim),
+                    c("box", "fine", "polished"), SIMPLIFY = FALSE) |>
+        set_names(c("b", "f", "p"))
+    # Functions for each optimization step:
+    funs <- lapply(c(box_optim, fine_optim, polished_optim),
+                   \(s) eval(parse(text = s))) |>
+        set_names(c("b", "f", "p"))
 
     set.seed(seed)
     t0 <- Sys.time()
-    sim_df <- test_all_sims(300L, LL[[n_repros]],
-                            sigma_s = sigma_s,
-                            sigma_f = sigma_f,
-                            no_K = no_K,
+    sim_df <- test_all_sims(300L, LL[[2L]],
+                            sigma_s = sigma_s_vals[[2]],
+                            sigma_f = sigma_f_vals[[2]],
+                            no_K = FALSE,
                             adjust_L = adjust_L,
-                            optim_args = list(box_optim = .bof,
-                                              box_control = .bc,
-                                              n_bevals = n_bevals,
-                                              n_boxes = n_boxes),
+                            optim_args = list(box_optim = funs$b,
+                                              fine_optim = funs$f,
+                                              polished_optim = funs$p,
+                                              box_control = conts$b,
+                                              fine_control = conts$f,
+                                              polished_control = conts$p,
+                                              n_bevals = n_bevals),
                             show_progress = FALSE)
     t1 <- Sys.time()
     dt <- as.numeric(difftime(t1, t0, units = "min"))
 
-    ## Eventually you'll summarize like this, but since these simulations take
-    ## so long, I'm going to save all the data.
-    # out <- out |>
-    #     group_by(param, sigma_s, sigma_f) |>
-    #     summarize(diverg = mean(abs(fit_diffs)),
-    #               sd_diverg = sd(abs(fit_diffs)),
-    #               accur = mean(abs(obs - fit)),
-    #               sd_accur = sd(abs(obs - fit)),
-    #               .groups = "drop") |>
-    #     mutate(minutes = dt,
-    #            adjust_L = adjust_L,
-    #            no_K = no_K,
-    #            n_repros = n_repros,
-    #            box_optim = box_optim,
-    #            n_bevals = n_bevals,
-    #            n_boxes = n_boxes) |>
-    #     select(adjust_L, no_K, n_repros, sigma_s, sigma_f, box_optim,
-    #            n_bevals, n_boxes, param, everything())
-
-    out <- list(sims = sim_df, time = dt, call = call_)
+    out <- list(sims = sim_df, minutes = dt, call = call_)
 
     write_rds(out, rds_file)
 
@@ -125,18 +127,15 @@ all_optim_sims <- function(option_df, overwrite) {
 
 overwrite <- FALSE
 
-# Took ~ 5 hours!
-if (length(list.files("_data/optim_sims", "*.rds$")) < 54L) {
+# Takes ~4.1 hours!
+if (overwrite || length(list.files("_data/optim_sims", "*.rds$")) < 72L) {
     t0 <- Sys.time()
     set.seed(1148372050)
     crossing(adjust_L = 0:2,
-             no_K = FALSE,
-             n_repros = 2,
-             sigma_s = sigma_s_vals[[2]],
-             sigma_f = sigma_f_vals[[2]],
-             box_optim = c("nloptr::bobyqa", "stats::optim"),
-             n_bevals = 100L * c(1L, 2L, 5L),
-             n_boxes = 1000L * c(1L, 2L, 5L)) |>
+             box_optim = c("minqa::bobyqa", "stats::optim"),
+             fine_optim = c("minqa::bobyqa", "stats::optim"),
+             polished_optim = c("minqa::bobyqa", "stats::optim"),
+             n_bevals = 100L * c(1L, 5L, 10L)) |>
         mutate(seed = sample.int(2^31-1, n())) |>
         all_optim_sims(overwrite = overwrite)
     t1 <- Sys.time()
@@ -148,61 +147,184 @@ if (length(list.files("_data/optim_sims", "*.rds$")) < 54L) {
 }
 
 
+if (overwrite || !file.exists(opt_sim_summ_rds)) {
+    # Takes ~18 sec
+    opt_sim_df <- list.files("_data/optim_sims", "*.rds$", full.names = TRUE) |>
+        map_dfr(\(x) {
+
+            sim_obj <- read_rds(x)
+
+            arg_names <- names(sim_obj[["call"]]) |>
+                discard(\(x) x %in% c("seed", "overwrite"))
+
+            out <- sim_obj[["sims"]] |>
+                split(~ param + sigma_s + sigma_f, drop = TRUE) |>
+                map_dfr(\(sx) {
+                    .diverg <- - log10(abs(sx$fit_diffs))
+                    .accur <- - log10(abs(sx$obs - sx$fit))
+                    d_boot <- smean.cl.boot(.diverg, B = 2000)
+                    a_boot <- smean.cl.boot(.accur, B = 2000)
+                    sx[1,] |>
+                        select(param, sigma_s, sigma_f) |>
+                        mutate(diverg = mean(.diverg),
+                               lo_diverg = d_boot[["Lower"]],
+                               hi_diverg = d_boot[["Upper"]],
+                               accur = mean(.accur),
+                               lo_accur = a_boot[["Lower"]],
+                               hi_accur = a_boot[["Upper"]])
+                })
+
+            for (an in arg_names) {
+                out[[an]] <- sim_obj[["call"]][[an]]
+            }
+
+            out <- out |>
+                select(all_of(arg_names), param, diverg:hi_accur)
+
+            time_row <- bind_cols(out[1,arg_names],
+                                  tibble(param = "minutes",
+                                         diverg = sim_obj[["minutes"]],
+                                         accur = sim_obj[["minutes"]]))
+            out <- bind_rows(out, time_row)
+            return(out)
+        }) |>
+        mutate(across(ends_with("_optim"),
+                      \(x) factor(x, levels = c("minqa::bobyqa", "stats::optim"),
+                                  labels = c("bobyqa", "optim"))),
+               adjust_L = factor(adjust_L, levels = 0:2,
+                                 labels = paste0(0:2, "-param")))
+    write_rds(opt_sim_df, opt_sim_summ_rds)
+} else {
+    opt_sim_df <- read_rds(opt_sim_summ_rds)
+}
 
 
-# Takes ~18 sec
-opt_sim_df <- list.files("_data/optim_sims", "*.rds$", full.names = TRUE) |>
-    map_dfr(\(x) {
-        sim_obj <- read_rds(x)
-        out <- sim_obj[["sims"]] |>
-            split(~ param + sigma_s + sigma_f, drop = TRUE) |>
-            map_dfr(\(sx) {
-                .diverg <- - log10(abs(sx$fit_diffs))
-                .accur <- - log10(abs(sx$obs - sx$fit))
-                d_boot <- smean.cl.boot(.diverg, B = 2000)
-                a_boot <- smean.cl.boot(.accur, B = 2000)
-                sx[1,] |>
-                    select(param, sigma_s, sigma_f) |>
-                    mutate(diverg = mean(.diverg),
-                           lo_diverg = d_boot[["Lower"]],
-                           hi_diverg = d_boot[["Upper"]],
-                           accur = mean(.accur),
-                           lo_accur = a_boot[["Lower"]],
-                           hi_accur = a_boot[["Upper"]])
-            }) |>
-            mutate(minutes = sim_obj[["time"]],
-                   adjust_L = sim_obj[["call"]][["adjust_L"]],
-                   no_K = sim_obj[["call"]][["no_K"]],
-                   n_repros = sim_obj[["call"]][["n_repros"]],
-                   box_optim = sim_obj[["call"]][["box_optim"]],
-                   n_bevals = sim_obj[["call"]][["n_bevals"]],
-                   n_boxes = sim_obj[["call"]][["n_boxes"]]) |>
-            select(adjust_L,
-                   # no_K, n_repros, sigma_s, sigma_f, ## << these didn't vary in sims
-                   box_optim,
-                   n_bevals, n_boxes, param, diverg:hi_accur)
-        return(out)
-    }) |>
-    mutate(box_optim = factor(box_optim),
-           adjust_L = factor(adjust_L, levels = 0:2,
-                             labels = paste0(0:2, "-param scaling")))
 
 
 
-.param <- "width99"
-.y <- "accur"
+optim_plotter <- function(.p, .y, .x, .c, .f, .scales = "fixed") {
 
-opt_sim_df |>
-    filter(param == .param) |>
-    ggplot(aes(n_boxes, .data[[.y]], color = factor(n_bevals))) +
-    geom_point(position = position_dodge(width = 20)) +
-    geom_errorbar(aes(ymin = .data[[paste0("lo_", .y)]],
-                      ymax = .data[[paste0("hi_", .y)]]),
-                  width = 10, position = position_dodge(width = 20)) +
-    geom_line() +
-    scale_color_viridis_d(begin = 0.2) +
-    ggtitle(.param) +
-    ylab(ifelse(.y == "diverg", "-- log<sub>10</sub>(Divergence among polished optimizations)",
-                "-- log<sub>10</sub>(Absolute difference between fit and observed)")) +
-    facet_wrap(~ box_optim + adjust_L) +
-    theme(axis.title.y = element_markdown())
+    # .p = "width99"; .y = "diverg";
+    # .x = "box_optim"; .c = "fine_optim"
+    # .f =  ~ polished_optim; .scales = "fixed"
+    # rm(.p, .y, .x, .c, .f, .scales, param_map, ylab_map, color_map, xlab_map, facet_form, dd, xtr_d_map, .n, unint_var, u, unint_idx, unint_lvl)
+
+    param_map <- list(shape = "Initial Beta shape",
+                      offset = "Initial Beta offset",
+                      K = "Density dependence",
+                      width99 = "Width of 99% quantile",
+                      med_age = "Median starting age",
+                      minutes = "Minutes elapsed")
+    ylab_fun <- function(.y, .p) {
+        if (.p == "minutes") return("Total elapsed minutes")
+        ym <- sprintf("-- log<sub>10</sub>(%s)",
+                      c("Divergence among polished optimizations",
+                        "Absolute difference between fit and observed")) |>
+            set_names(c("diverg", "accur")) |>
+            as.list()
+        return(ym[[.y]])
+    }
+
+    # color_map <- list(n_boxes = "Number \nof boxes",
+    #                   n_bevals = "Evaluations\nper box",
+    #                   box_optim = "Box\noptimizer",
+    #                   fine_optim = "Fine\noptimizer",
+    #                   polished_optim = "Polished\noptimizer",
+    #                   adjust_L = "Leslie\nscaling") |>
+    #     keep_at(colnames(opt_sim_df))
+    # xlab_map <- list(n_boxes = "Number of boxes",
+    #                  n_bevals = "Number of evaluations per box",
+    #                  box_optim = "Box optimizer",
+    #                  fine_optim = "Fine optimizer",
+    #                  polished_optim = "Polished optimizer",
+    #                  adjust_L = "Leslie scaling") |>
+    #     keep_at(colnames(opt_sim_df))
+    #
+    # if (inherits(.f, "formula")) {
+    #     facet_form <- .f
+    #     .f <- all.vars(facet_form)
+    # } else {
+    #     stopifnot(length(.f) > 1)
+    #     # Multiple paste commands to account for >2 variables:
+    #     facet_form <- paste(.f[1], "~", paste(.f[-1], collapse = " + ")) |>
+    #         as.formula()
+    # }
+
+    stopifnot(.p %in% names(param_map))
+    stopifnot(.y %in% c("diverg", "accur"))
+    # stopifnot(.x %in% names(color_map))
+    # stopifnot(.c %in% names(color_map))
+    # stopifnot(all(.f %in% names(color_map)))
+    #
+    # dd <- opt_sim_df
+    #
+    # # These variables need extra descriptions if used in facets:
+    # xtr_d_map <- list(n_bevals = "evals / box",
+    #                   n_boxes = "boxes",
+    #                   box_optim = "(box)",
+    #                   fine_optim = "(fine)",
+    #                   polished_optim = "(polished)") |>
+    #     keep_at(colnames(opt_sim_df))
+    # for (.n in names(xtr_d_map)) {
+    #     if (.n %in% .f) {
+    #         dd[[.n]] <- factor(paste(dd[[.n]]),
+    #                            levels = paste(sort(unique(dd[[.n]]))),
+    #                            labels = paste(sort(unique(dd[[.n]])),
+    #                                           xtr_d_map[[.n]]))
+    #     } else dd[[.n]] <- factor(dd[[.n]])
+    # }
+    #
+    # # Filter for middle value in parameter(s) not specified by x, color,
+    # # or facet.
+    # unint_var <- names(color_map)[!names(color_map) %in% c(.x, .c, .f)]
+    # if (length(unint_var) > 0) {
+    #     for (u in unint_var) {
+    #         # (These/this variable(s) should always be a factor after the
+    #         #  chunk using `xtr_d_map` above.)
+    #         stopifnot(inherits(dd[[u]], "factor"))
+    #         unint_idx <- (length(levels(dd[[u]])) + 1L) %/% 2L
+    #         unint_lvl <- levels(dd[[u]])[unint_idx]
+    #         dd <- dd |>
+    #             filter(.data[[u]] == unint_lvl) |>
+    #             select(- !!u)
+    #     }
+    # }
+    #
+    # dd |>
+
+    .x <- "n_bevals"
+    .c <- "adjust_L"
+    .p = "minutes"; .y = "accur"
+
+    opt_sim_df |>
+        filter(param == .p) |>
+        mutate(!! .x := factor(.data[[.x]]),
+               id = interaction(box_optim, fine_optim, polished_optim,
+                                drop = TRUE, sep = "\n> ")) |>
+        ggplot(aes(.data[[.x]], .data[[.y]], color = .data[[.c]])) +
+        geom_hline(aes(yintercept = mean(.data[[.y]])),
+                   linetype = "22", color = "gray70") +
+        geom_errorbar(aes(ymin = .data[[paste0("lo_", .y)]],
+                          ymax = .data[[paste0("hi_", .y)]]),
+                      width = 0.2, position = position_dodge(width = 0.5),
+                      na.rm = TRUE) +
+        geom_line(aes(x = as.numeric(.data[[.x]])),
+                  position = position_dodge(width = 0.5)) +
+        geom_point(position = position_dodge(width = 0.5)) +
+        scale_color_viridis_d("Leslie\nscaling", begin = 0.2) +
+        ggtitle(param_map[[.p]]) +
+        # xlab(xlab_map[[.x]]) +
+        xlab("Number of evaluations per box") +
+        ylab(ylab_fun(.y, .p)) +
+        facet_wrap(~ id, nrow = 1, scales = "fixed") +
+        theme(axis.title.y = element_markdown(),
+              plot.title = element_text(size = 16, face = "bold"),
+              strip.text = element_text(size = 11, lineheight = unit(0.8, "lines")))
+}
+
+
+optim_plotter(.p = "width99", .y = "accur", .x = "n_bevals", .c = "box_optim")
+optim_plotter(.p = "minutes", .y = "accur", .x = "adjust_L", .c = "box_optim")
+
+
+
