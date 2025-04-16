@@ -157,6 +157,7 @@ random_survs <- function(L,
                          norm_rnd = FALSE,
                          norm_lambda = FALSE,
                          al_args = list()) {
+    if (sigma_s <= 0) return(L)
     lambda <- calc_lambda(L) # in case norm_lambda = TRUE
     survs <- L[row(L) - col(L) == 1]
     rnds <- rnorm(length(survs), 0, sigma_s)
@@ -195,6 +196,7 @@ random_fecunds <- function(L,
                            norm_rnd = FALSE,
                            norm_lambda = FALSE,
                            al_args = list()) {
+    if (sigma_f <= 0) return(L)
     lambda <- calc_lambda(L) # in case norm_lambda = TRUE
     rnds <- exp(rnorm(ncol(L), 0, sigma_f))
     if (norm_rnd) rnds <- rnds / mean(rnds)
