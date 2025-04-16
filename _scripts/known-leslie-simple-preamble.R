@@ -112,9 +112,13 @@ test_sim <- function(i, sim_L, fit_L,
 
 
 # Test all `n_sims` simulation fits for a single fecundity and survival combination
+# If L is NULL and both n_stages and n_repros are provided, it creates a new,
+# randomly generated leslie matrix for each iteration.
 test_all_sims <- function(n_sims, L,
                           sigma_s = 0,
                           sigma_f = 0,
+                          n_stages = NULL,
+                          n_repros = NULL,
                           no_K = FALSE,
                           adjust_L = 0L,
                           fit_max_t = 30L,
@@ -123,21 +127,37 @@ test_all_sims <- function(n_sims, L,
                           sim_args = list(),
                           parallel = TRUE,
                           show_progress = TRUE) {
+    if (is.null(L) && (is.null(n_stages) || is.null(n_repros))) {
+        stop("If L is NULL, n_stages and n_repros must both be provided.")
+    }
     if (parallel) {
+        p <- function() invisible(NULL)
         if (show_progress) p <- progressor(steps = n_sims)
-        out <- future_lapply(1:n_sims, function(i) {
-            fit_L <- L
-            if (sigma_s > 0) fit_L <- random_survs(fit_L, sigma_s)
-            if (sigma_f > 0) fit_L <- random_fecunds(fit_L, sigma_f)
-            ifits <- test_sim(i = i, sim_L = L, fit_L = fit_L, no_K = no_K,
+        one_sim <- function(i) {
+            if (is.null(L)) {
+                adult_stage <- n_stages - n_repros + 1L
+                weib_shape <- runif(1, 0, 10)
+                weib_scale <- runif(1, 0, 10)
+                sim_L <- make_L1(weib_shape, weib_scale, n_stages, adult_stage)
+                survs <- inv_logit(rnorm(n_stages-1, logit(0.9), 1))
+                sim_L[row(sim_L) - col(sim_L) == 1] <- survs
+                lambda <- runif(1, 1.05, 1.2)
+                sim_L <- adjust_lambda(sim_L, lambda)
+            } else {
+                sim_L <- L
+            }
+            fit_L <- sim_L |>
+                random_survs(sigma_s) |>
+                random_fecunds(sigma_f)
+            ifits <- test_sim(i = i, sim_L = sim_L, fit_L = fit_L, no_K = no_K,
                               adjust_L = adjust_L, fit_max_t = fit_max_t,
                               optim_args = optim_args, fit_args = fit_args,
                               sim_args = sim_args)
-            if (show_progress) p()
+            p()
             return(ifits)
-        },
-        future.seed = TRUE,
-        future.packages = c("tidyverse", "aphidsync"))
+        }
+        out <- future_lapply(1:n_sims, one_sim, future.seed = TRUE,
+                             future.packages = c("tidyverse", "aphidsync"))
     } else {
         out <- lapply(1:n_sims, function(i) {
             fit_L <- L

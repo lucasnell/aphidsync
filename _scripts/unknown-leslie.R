@@ -228,6 +228,21 @@ fop <- optim(c(2, 8),
              },
              fecunds = line_s$leslie[1,9:29,1],
              max_f = max(line_s$leslie[,,1]))
+# $par
+# [1] 1.981920 8.254428
+#
+# $value
+# [1] 7.929942
+#
+# $counts
+# function gradient
+#       93       NA
+#
+# $convergence
+# [1] 0
+#
+# $message
+# NULL
 
 
 test_sim <- function(i, .fit_survs) {
