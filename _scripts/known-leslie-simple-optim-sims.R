@@ -8,7 +8,7 @@ source("_scripts/known-leslie-simple-preamble.R")
 
 
 
-opt_sim_summ_rds <- "_data/opt_sim_df.rds"
+opt_sim_summ_rds <- "_data/opt_sim_df_simple.rds"
 
 
 # =============================================================================*
@@ -29,7 +29,7 @@ one_optim_sim <- function(adjust_L, box_optim, fine_optim, polished_optim,
     # evaluates everything
     call_ <- mget(names(formals()), sys.frame(sys.nframe()))
 
-    rds_file <- sprintf("_data/optim_sims/%s.rds",
+    rds_file <- sprintf("_data/optim_sims_simple/%s.rds",
                         paste(adjust_L, box_optim, fine_optim, polished_optim,
                               n_bevals, sep = "-")) |>
         str_replace_all("::", "_")
@@ -128,7 +128,7 @@ all_optim_sims <- function(option_df, overwrite) {
 overwrite <- FALSE
 
 # Takes ~4.1 hours!
-if (overwrite || length(list.files("_data/optim_sims", "*.rds$")) < 72L) {
+if (overwrite || length(list.files("_data/optim_sims_simple", "*.rds$")) < 72L) {
     t0 <- Sys.time()
     set.seed(1148372050)
     crossing(adjust_L = 0:2,
@@ -149,7 +149,7 @@ if (overwrite || length(list.files("_data/optim_sims", "*.rds$")) < 72L) {
 
 if (overwrite || !file.exists(opt_sim_summ_rds)) {
     # Takes ~18 sec
-    opt_sim_df <- list.files("_data/optim_sims", "*.rds$", full.names = TRUE) |>
+    opt_sim_df <- list.files("_data/optim_sims_simple", "*.rds$", full.names = TRUE) |>
         map_dfr(\(x) {
 
             sim_obj <- read_rds(x)
@@ -202,12 +202,10 @@ if (overwrite || !file.exists(opt_sim_summ_rds)) {
 
 
 
-optim_plotter <- function(.p, .y, .x, .c, .f, .scales = "fixed") {
+optim_plotter <- function(.p, .y, .facet_nrow = 1L, .y_lims = NULL) {
 
-    # .p = "width99"; .y = "diverg";
-    # .x = "box_optim"; .c = "fine_optim"
-    # .f =  ~ polished_optim; .scales = "fixed"
-    # rm(.p, .y, .x, .c, .f, .scales, param_map, ylab_map, color_map, xlab_map, facet_form, dd, xtr_d_map, .n, unint_var, u, unint_idx, unint_lvl)
+    # `.y` doesn't matter in this case:
+    if (missing(.y) && .p == "minutes") .y <- "diverg"
 
     param_map <- list(shape = "Initial Beta shape",
                       offset = "Initial Beta offset",
@@ -225,106 +223,67 @@ optim_plotter <- function(.p, .y, .x, .c, .f, .scales = "fixed") {
         return(ym[[.y]])
     }
 
-    # color_map <- list(n_boxes = "Number \nof boxes",
-    #                   n_bevals = "Evaluations\nper box",
-    #                   box_optim = "Box\noptimizer",
-    #                   fine_optim = "Fine\noptimizer",
-    #                   polished_optim = "Polished\noptimizer",
-    #                   adjust_L = "Leslie\nscaling") |>
-    #     keep_at(colnames(opt_sim_df))
-    # xlab_map <- list(n_boxes = "Number of boxes",
-    #                  n_bevals = "Number of evaluations per box",
-    #                  box_optim = "Box optimizer",
-    #                  fine_optim = "Fine optimizer",
-    #                  polished_optim = "Polished optimizer",
-    #                  adjust_L = "Leslie scaling") |>
-    #     keep_at(colnames(opt_sim_df))
-    #
-    # if (inherits(.f, "formula")) {
-    #     facet_form <- .f
-    #     .f <- all.vars(facet_form)
-    # } else {
-    #     stopifnot(length(.f) > 1)
-    #     # Multiple paste commands to account for >2 variables:
-    #     facet_form <- paste(.f[1], "~", paste(.f[-1], collapse = " + ")) |>
-    #         as.formula()
-    # }
-
     stopifnot(.p %in% names(param_map))
     stopifnot(.y %in% c("diverg", "accur"))
-    # stopifnot(.x %in% names(color_map))
-    # stopifnot(.c %in% names(color_map))
-    # stopifnot(all(.f %in% names(color_map)))
-    #
-    # dd <- opt_sim_df
-    #
-    # # These variables need extra descriptions if used in facets:
-    # xtr_d_map <- list(n_bevals = "evals / box",
-    #                   n_boxes = "boxes",
-    #                   box_optim = "(box)",
-    #                   fine_optim = "(fine)",
-    #                   polished_optim = "(polished)") |>
-    #     keep_at(colnames(opt_sim_df))
-    # for (.n in names(xtr_d_map)) {
-    #     if (.n %in% .f) {
-    #         dd[[.n]] <- factor(paste(dd[[.n]]),
-    #                            levels = paste(sort(unique(dd[[.n]]))),
-    #                            labels = paste(sort(unique(dd[[.n]])),
-    #                                           xtr_d_map[[.n]]))
-    #     } else dd[[.n]] <- factor(dd[[.n]])
-    # }
-    #
-    # # Filter for middle value in parameter(s) not specified by x, color,
-    # # or facet.
-    # unint_var <- names(color_map)[!names(color_map) %in% c(.x, .c, .f)]
-    # if (length(unint_var) > 0) {
-    #     for (u in unint_var) {
-    #         # (These/this variable(s) should always be a factor after the
-    #         #  chunk using `xtr_d_map` above.)
-    #         stopifnot(inherits(dd[[u]], "factor"))
-    #         unint_idx <- (length(levels(dd[[u]])) + 1L) %/% 2L
-    #         unint_lvl <- levels(dd[[u]])[unint_idx]
-    #         dd <- dd |>
-    #             filter(.data[[u]] == unint_lvl) |>
-    #             select(- !!u)
-    #     }
-    # }
-    #
-    # dd |>
-
-    .x <- "n_bevals"
-    .c <- "adjust_L"
-    .p = "minutes"; .y = "accur"
 
     opt_sim_df |>
         filter(param == .p) |>
-        mutate(!! .x := factor(.data[[.x]]),
+        mutate(n_bevals = factor(n_bevals),
                id = interaction(box_optim, fine_optim, polished_optim,
                                 drop = TRUE, sep = "\n> ")) |>
-        ggplot(aes(.data[[.x]], .data[[.y]], color = .data[[.c]])) +
+        ggplot(aes(n_bevals, .data[[.y]], color = adjust_L)) +
         geom_hline(aes(yintercept = mean(.data[[.y]])),
                    linetype = "22", color = "gray70") +
         geom_errorbar(aes(ymin = .data[[paste0("lo_", .y)]],
                           ymax = .data[[paste0("hi_", .y)]]),
                       width = 0.2, position = position_dodge(width = 0.5),
                       na.rm = TRUE) +
-        geom_line(aes(x = as.numeric(.data[[.x]])),
+        geom_line(aes(x = as.numeric(n_bevals)),
                   position = position_dodge(width = 0.5)) +
         geom_point(position = position_dodge(width = 0.5)) +
         scale_color_viridis_d("Leslie\nscaling", begin = 0.2) +
         ggtitle(param_map[[.p]]) +
-        # xlab(xlab_map[[.x]]) +
         xlab("Number of evaluations per box") +
-        ylab(ylab_fun(.y, .p)) +
-        facet_wrap(~ id, nrow = 1, scales = "fixed") +
+        scale_y_continuous(ylab_fun(.y, .p), limits = .y_lims) +
+        facet_wrap(~ id, nrow = .facet_nrow, scales = "fixed") +
         theme(axis.title.y = element_markdown(),
               plot.title = element_text(size = 16, face = "bold"),
               strip.text = element_text(size = 11, lineheight = unit(0.8, "lines")))
 }
 
 
-optim_plotter(.p = "width99", .y = "accur", .x = "n_bevals", .c = "box_optim")
-optim_plotter(.p = "minutes", .y = "accur", .x = "adjust_L", .c = "box_optim")
+optim_plotter(.p = "minutes", .y_lims = c(0, NA))
+
+optim_plotter(.p = "width99", .y = "diverg")
+optim_plotter(.p = "offset", .y = "diverg")
+
+optim_plotter(.p = "width99", .y = "accur")
+optim_plotter(.p = "offset", .y = "accur")
 
 
+# From this, I think that the 2-parameter scaling with bobyqa > optim > optim
 
+
+.p = "offset"
+.y = "accur"
+
+opt_sim_df |>
+    filter(param == .p) |>
+    mutate(n_bevals = factor(n_bevals),
+           id = interaction(box_optim, fine_optim, polished_optim,
+                            drop = TRUE, sep = " > ")) |>
+    filter(polished_optim == "optim", fine_optim == "optim",
+           adjust_L == "2-param") |>
+    ggplot(aes(n_bevals, .data[[.y]], color = id)) +
+    geom_errorbar(aes(ymin = .data[[paste0("lo_", .y)]],
+                      ymax = .data[[paste0("hi_", .y)]]),
+                  width = 0.2, na.rm = TRUE) +
+    geom_line(aes(x = as.numeric(n_bevals))) +
+    geom_point() +
+    scale_color_viridis_d(NULL, begin = 0.2) +
+    ggtitle(.p) +
+    xlab("Number of evaluations per box") +
+    scale_y_continuous(.y) +
+    theme(axis.title.y = element_markdown(),
+          plot.title = element_text(size = 16, face = "bold"),
+          legend.position = "top")
