@@ -120,7 +120,7 @@ all_optim_sims <- function(option_df, overwrite) {
 
 overwrite <- FALSE
 
-# Takes ~ hours!
+# Takes ~17.6 hours!
 if (overwrite || length(list.files(sim_rds_dir, "*.rds$")) < 198L) {
     t0 <- Sys.time()
     set.seed(1607759038)
@@ -142,9 +142,10 @@ if (overwrite || length(list.files(sim_rds_dir, "*.rds$")) < 198L) {
 
 
 if (overwrite || !file.exists(opt_sim_summ_rds)) {
-    # Takes ~18 sec
+    # Takes ~14 sec
+    set.seed(1898948701)  # << for bootstrapping
     opt_sim_df <- list.files(sim_rds_dir, "*.rds$", full.names = TRUE) |>
-        map_dfr(\(x) {
+        future_lapply(\(x) {
 
             sim_obj <- read_rds(x)
 
@@ -154,8 +155,15 @@ if (overwrite || !file.exists(opt_sim_summ_rds)) {
             out <- sim_obj[["sims"]] |>
                 split(~ param + sigma_s + sigma_f, drop = TRUE) |>
                 map_dfr(\(sx) {
-                    .diverg <- - log10(abs(sx$fit_diffs))
-                    .accur <- - log10(abs(sx$obs - sx$fit))
+                    if (sx[["param"]][[1]] == "med_age") {
+                        # Bc med_age often contains zeros here, and even one
+                        # zero value makes the mean infinity:
+                        .diverg <- - log10(1 + abs(sx$fit_diffs))
+                        .accur <- - log10(1 + abs(sx$obs - sx$fit))
+                    } else {
+                        .diverg <- - log10(abs(sx$fit_diffs))
+                        .accur <- - log10(abs(sx$obs - sx$fit))
+                    }
                     d_boot <- smean.cl.boot(.diverg, B = 2000)
                     a_boot <- smean.cl.boot(.accur, B = 2000)
                     sx[1,] |>
@@ -181,7 +189,8 @@ if (overwrite || !file.exists(opt_sim_summ_rds)) {
                                          accur = sim_obj[["minutes"]]))
             out <- bind_rows(out, time_row)
             return(out)
-        }) |>
+        }, future.seed = TRUE, future.packages = c("tidyverse", "aphidsync")) |>
+        do.call(what = bind_rows) |>
         mutate(across(ends_with("_optim"),
                       \(x) factor(x, levels = c("minqa::bobyqa", "stats::optim"),
                                   labels = c("bobyqa", "optim"))),
@@ -195,11 +204,13 @@ if (overwrite || !file.exists(opt_sim_summ_rds)) {
 
 
 
-
-optim_plotter <- function(.p, .y, .facet_nrow = 1L, .y_lims = NULL) {
+optim_plotter <- function(.p, .y, .scales = "fixed", .y_lims = NULL) {
 
     # `.y` doesn't matter in this case:
     if (missing(.y) && .p == "minutes") .y <- "diverg"
+
+    # .p = "width99"; .y = "diverg"; .scales = "fixed"
+    # rm(.p, .y, .scales, param_map, ylab_fun)
 
     param_map <- list(shape = "Initial Beta shape",
                       offset = "Initial Beta offset",
@@ -209,9 +220,10 @@ optim_plotter <- function(.p, .y, .facet_nrow = 1L, .y_lims = NULL) {
                       minutes = "Minutes elapsed")
     ylab_fun <- function(.y, .p) {
         if (.p == "minutes") return("Total elapsed minutes")
-        ym <- sprintf("-- log<sub>10</sub>(%s)",
-                      c("Divergence among polished optimizations",
-                        "Absolute difference between fit and observed")) |>
+        if (.p == "med_age") .fmt <- "-- log<sub>10</sub>(1 + %s)"
+        else .fmt <- "-- log<sub>10</sub>(%s)"
+        ym <- sprintf(.fmt, c("Divergence among polished optimizations",
+                              "Absolute difference between fit and observed")) |>
             set_names(c("diverg", "accur")) |>
             as.list()
         return(ym[[.y]])
@@ -223,9 +235,11 @@ optim_plotter <- function(.p, .y, .facet_nrow = 1L, .y_lims = NULL) {
     opt_sim_df |>
         filter(param == .p) |>
         mutate(n_bevals = factor(n_bevals),
-               id = interaction(box_optim, fine_optim, polished_optim,
-                                drop = TRUE, sep = "\n> ")) |>
-        ggplot(aes(n_bevals, .data[[.y]], color = adjust_L)) +
+               n_stages = factor(paste(n_stages, "stages"),
+                                 levels = paste(sort(unique(n_stages)), "stages")),
+               n_repros = factor(paste(n_repros, "repros"),
+                                 levels = paste(sort(unique(n_repros)), "repros"))) |>
+        ggplot(aes(n_bevals, .data[[.y]], color = adjust_L, shape = box_optim)) +
         geom_hline(aes(yintercept = mean(.data[[.y]])),
                    linetype = "22", color = "gray70") +
         geom_errorbar(aes(ymin = .data[[paste0("lo_", .y)]],
@@ -236,48 +250,49 @@ optim_plotter <- function(.p, .y, .facet_nrow = 1L, .y_lims = NULL) {
                   position = position_dodge(width = 0.5)) +
         geom_point(position = position_dodge(width = 0.5)) +
         scale_color_viridis_d("Leslie\nscaling", begin = 0.2) +
+        scale_shape_manual("Box\noptimizer", values = c(1, 19)) +
         ggtitle(param_map[[.p]]) +
         xlab("Number of evaluations per box") +
         scale_y_continuous(ylab_fun(.y, .p), limits = .y_lims) +
-        facet_wrap(~ id, nrow = .facet_nrow, scales = "fixed") +
+        facet_grid(n_stages ~ n_repros, scales = .scales) +
         theme(axis.title.y = element_markdown(),
               plot.title = element_text(size = 16, face = "bold"),
               strip.text = element_text(size = 11, lineheight = unit(0.8, "lines")))
+
 }
 
 
 optim_plotter(.p = "minutes", .y_lims = c(0, NA))
 
-optim_plotter(.p = "width99", .y = "diverg")
+#' Take-aways from above:
+#' - Number of evaluations has a big effect on time
+#' - Other factors are swamped by the effect of the number of evaluations
+#' - optim slightly faster than bobyqa
+
+
+# optim_plotter(.p = "width99", .y = "diverg")
+# optim_plotter(.p = "med_age", .y = "diverg")
+optim_plotter(.p = "shape", .y = "diverg")
 optim_plotter(.p = "offset", .y = "diverg")
 
-optim_plotter(.p = "width99", .y = "accur")
+#' Take-aways from above:
+#' - 0-param scaling has lowest divergence among polished optimizations
+#' - 2-param scaling has lower divergence tan 1-param scaling
+#' - More evaluations reduces divergence and causes 1-param scaling to
+#'   start to catchup (but it never totally does)
+
+
+# optim_plotter(.p = "width99", .y = "accur")
+# optim_plotter(.p = "med_age", .y = "accur")
+optim_plotter(.p = "shape", .y = "accur")
 optim_plotter(.p = "offset", .y = "accur")
 
+#' Take-aways from above:
+#' - 1-param scaling is the most accurate, but this effect is reduced with
+#'   greater number of reproductive stages
+#' - With 20 total stages, all scaling methods are roughly the same
 
-# From this, I think that the 2-parameter scaling with bobyqa > optim > optim
 
 
-.p = "offset"
-.y = "accur"
 
-opt_sim_df |>
-    filter(param == .p) |>
-    mutate(n_bevals = factor(n_bevals),
-           id = interaction(box_optim, fine_optim, polished_optim,
-                            drop = TRUE, sep = " > ")) |>
-    filter(polished_optim == "optim", fine_optim == "optim",
-           adjust_L == "2-param") |>
-    ggplot(aes(n_bevals, .data[[.y]], color = id)) +
-    geom_errorbar(aes(ymin = .data[[paste0("lo_", .y)]],
-                      ymax = .data[[paste0("hi_", .y)]]),
-                  width = 0.2, na.rm = TRUE) +
-    geom_line(aes(x = as.numeric(n_bevals))) +
-    geom_point() +
-    scale_color_viridis_d(NULL, begin = 0.2) +
-    ggtitle(.p) +
-    xlab("Number of evaluations per box") +
-    scale_y_continuous(.y) +
-    theme(axis.title.y = element_markdown(),
-          plot.title = element_text(size = 16, face = "bold"),
-          legend.position = "top")
+

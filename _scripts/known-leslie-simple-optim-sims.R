@@ -7,7 +7,7 @@
 source("_scripts/known-leslie-simple-preamble.R")
 
 
-
+sim_rds_dir <- "_data/optim_sims_simple"
 opt_sim_summ_rds <- "_data/opt_sim_df_simple.rds"
 
 
@@ -128,7 +128,7 @@ all_optim_sims <- function(option_df, overwrite) {
 overwrite <- FALSE
 
 # Takes ~4.1 hours!
-if (overwrite || length(list.files("_data/optim_sims_simple", "*.rds$")) < 72L) {
+if (overwrite || length(list.files(sim_rds_dir, "*.rds$")) < 72L) {
     t0 <- Sys.time()
     set.seed(1148372050)
     crossing(adjust_L = 0:2,
@@ -148,9 +148,10 @@ if (overwrite || length(list.files("_data/optim_sims_simple", "*.rds$")) < 72L) 
 
 
 if (overwrite || !file.exists(opt_sim_summ_rds)) {
-    # Takes ~18 sec
-    opt_sim_df <- list.files("_data/optim_sims_simple", "*.rds$", full.names = TRUE) |>
-        map_dfr(\(x) {
+    # Takes ~7 sec
+    set.seed(1460599895)  # << for bootstrapping
+    opt_sim_df <- list.files(sim_rds_dir, "*.rds$", full.names = TRUE) |>
+        future_lapply(\(x) {
 
             sim_obj <- read_rds(x)
 
@@ -187,7 +188,8 @@ if (overwrite || !file.exists(opt_sim_summ_rds)) {
                                          accur = sim_obj[["minutes"]]))
             out <- bind_rows(out, time_row)
             return(out)
-        }) |>
+        }, future.seed = TRUE, future.packages = c("tidyverse", "aphidsync")) |>
+        do.call(what = bind_rows) |>
         mutate(across(ends_with("_optim"),
                       \(x) factor(x, levels = c("minqa::bobyqa", "stats::optim"),
                                   labels = c("bobyqa", "optim"))),
