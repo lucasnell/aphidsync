@@ -129,7 +129,7 @@ fit_known_leslie <- function(sim_df, L, N0,
                            "change est_K_start or est_K_min_n."),
                      sum(sim_df$time > est_K_start), est_K_min_n))
     }
-    if ("line" %in% colnames(sim_df) && length(unique(sim_df$line)) == 1L) {
+    if ("line" %in% colnames(sim_df) && length(unique(sim_df$line)) > 1L) {
         stop("sim_df cannot have >1 line")
     }
 
