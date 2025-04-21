@@ -51,10 +51,10 @@ sim_pop <- function(shape, offset, K, L,
                     max_t = 150,
                     sd_error = 0) {
 
-    aphids0 <- beta_starts(shape, offset, 100, nrow(L))
+    abunds0 <- beta_starts(shape, offset, 100, nrow(L))
     .time <- 0:max_t
 
-    sim_df <- tibble(N = as.numeric(sim_N(aphids0, L, .time, K)),
+    sim_df <- tibble(N = as.numeric(sim_N(abunds0, L, .time, K)),
                      time = .time)
 
     if (sample_filter){
@@ -90,13 +90,14 @@ test_sim <- function(i, sim_L, fit_L,
     } else K <- runif(1, 1000, 5000)
     sp_args <- list("shape" = shape, "offset" = offset, "K" = K, "L" = sim_L)
     if (length(sim_args) > 0) for (n in names(sim_args)) sp_args[[n]] <- sim_args[[n]]
-    re_df <- do.call(sim_pop, sp_args)
-    fkl_args <- list(sim_df = re_df, L = fit_L, N0 = 100, K = K,
+    sim_df <- do.call(sim_pop, sp_args)
+    fkl_args <- list(sim_df = sim_df, L = fit_L, N0 = 100, K = K,
                      adjust_L = adjust_L, optim_args = optim_args)
     if (length(fit_args) > 0) for (n in names(fit_args)) fkl_args[[n]] <- fit_args[[n]]
+    fkl_args[["return_optims"]] <- FALSE # << required for this fxn to work
     fits <- do.call(fit_known_leslie, fkl_args)
     if (any(is.na(fits))) {
-        stop(sprintf("any(is.na(fits))\n shape = %s\n offset = %s\n K = %s",
+        stop(sprintf("any(is.na(fits))\n shape = %s\n offset = %s\n K = %s\n",
                      shape, offset, K))
     }
     par_diffs <- attr(fits, "par_diffs")
@@ -108,6 +109,31 @@ test_sim <- function(i, sim_L, fit_L,
            param = names(fits),
            rep = i) |>
         mutate(param = factor(param, levels = param_lvls))
+}
+
+
+# Make a random Leslie matrix:
+make_rand_L <- function(n_stages, n_repros) {
+    # -----------*
+    # Randomly generated items
+    # -----------*
+    # Shape and scale for Weibull distribution used to generate
+    # fecundities (Weibull used bc it fit best for aphid data)
+    # Both distributions are uniforms with means that are about what the aphid
+    # Leslie matrix is
+    weib_shape <- runif(1, 0, 4)
+    weib_scale <- runif(1, 0, 16)
+    # Survivals:
+    survs <- inv_logit(rnorm(n_stages-1, logit(0.9), 1))
+    # Overall growth rate:
+    lambda <- runif(1, 1.05, 1.2)
+    # -----------*
+    # Creating Leslie matrix
+    # -----------*
+    L <- make_L1(weib_shape, weib_scale, n_stages, n_stages - n_repros + 1L)
+    L[row(L) - col(L) == 1] <- survs
+    L <- adjust_lambda(L, lambda)
+    return(L)
 }
 
 
@@ -130,45 +156,29 @@ test_all_sims <- function(n_sims, L,
     if (is.null(L) && (is.null(n_stages) || is.null(n_repros))) {
         stop("If L is NULL, n_stages and n_repros must both be provided.")
     }
-    if (parallel) {
-        p <- function() invisible(NULL)
-        if (show_progress) p <- progressor(steps = n_sims)
-        one_sim <- function(i) {
-            if (is.null(L)) {
-                adult_stage <- n_stages - n_repros + 1L
-                weib_shape <- runif(1, 0, 10)
-                weib_scale <- runif(1, 0, 10)
-                sim_L <- make_L1(weib_shape, weib_scale, n_stages, adult_stage)
-                survs <- inv_logit(rnorm(n_stages-1, logit(0.9), 1))
-                sim_L[row(sim_L) - col(sim_L) == 1] <- survs
-                lambda <- runif(1, 1.05, 1.2)
-                sim_L <- adjust_lambda(sim_L, lambda)
-            } else {
-                sim_L <- L
-            }
-            fit_L <- sim_L |>
-                random_survs(sigma_s) |>
-                random_fecunds(sigma_f)
-            ifits <- test_sim(i = i, sim_L = sim_L, fit_L = fit_L, no_K = no_K,
-                              adjust_L = adjust_L, fit_max_t = fit_max_t,
-                              optim_args = optim_args, fit_args = fit_args,
-                              sim_args = sim_args)
-            p()
-            return(ifits)
+    one_sim <- function(i) {
+        if (is.null(L)) {
+            sim_L <- make_rand_L(n_stages, n_repros)
+        } else {
+            sim_L <- L
         }
+        fit_L <- sim_L |>
+            random_survs(sigma_s) |>
+            random_fecunds(sigma_f)
+        ifits <- test_sim(i = i, sim_L = sim_L, fit_L = fit_L, no_K = no_K,
+                          adjust_L = adjust_L, fit_max_t = fit_max_t,
+                          optim_args = optim_args, fit_args = fit_args,
+                          sim_args = sim_args)
+        p()
+        return(ifits)
+    }
+    p <- function() invisible(NULL)
+    if (parallel) {
+        if (show_progress) p <- progressor(steps = n_sims)
         out <- future_lapply(1:n_sims, one_sim, future.seed = TRUE,
                              future.packages = c("tidyverse", "aphidsync"))
     } else {
-        out <- lapply(1:n_sims, function(i) {
-            fit_L <- L
-            if (sigma_s > 0) fit_L <- random_survs(fit_L, sigma_s)
-            if (sigma_f > 0) fit_L <- random_fecunds(fit_L, sigma_f)
-            ifits <- test_sim(i = i, sim_L = L, fit_L = fit_L, no_K = no_K,
-                              adjust_L = adjust_L, fit_max_t = fit_max_t,
-                              optim_args = optim_args, fit_args = fit_args,
-                              sim_args = sim_args)
-            return(ifits)
-        })
+        out <- lapply(1:n_sims, one_sim)
     }
     out <- out |>
         do.call(what = bind_rows) |>
