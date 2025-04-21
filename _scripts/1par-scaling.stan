@@ -61,6 +61,7 @@ functions {
 
     vector sim_pcg(real shape,
                    real offset,
+                   real fecund_x,
                    data real total_N0,
                    data int n_stages,
                    data array[] int time,
@@ -75,10 +76,13 @@ functions {
         int max_t = max(time);
         real S;
         int i = 1;
+        matrix[n_stages,n_stages] Lx;
+        Lx = L;
+
         vector[n_stages] abunds = abunds0;
         for (t in 1:max_t) {
             S = 1 / (1 + N_t / K);
-            abunds = S * (L * abunds);
+            abunds = S * (Lx * abunds);
             N_t1 = sum(abunds);
             if (t == time[i]) {
                 pcg[i] = N_t1 / N_t;
@@ -108,6 +112,8 @@ data {
     // mean and stdev for prior gamma distribution for sigma:
     real<lower=0> sigma_mean;
     real<lower=0> sigma_sd;
+    // stdev for prior truncated normal distribution for fecund_x (mean is always 1):
+    real <lower=0> fx_sd;
 }
 transformed data {
     real shape_alpha;
@@ -116,23 +122,26 @@ transformed data {
     real offset_beta;
     real sigma_alpha;
     real sigma_beta;
+    // real fx_shape;
     shape_alpha = square(shape_mean) / square(shape_sd);
     shape_beta = shape_mean / square(shape_sd);
     offset_alpha = offset_mean * ((offset_mean * (1 - offset_mean)) / square(offset_sd) - 1);
     offset_beta = (1 - offset_mean) * ((offset_mean * (1 - offset_mean)) / square(offset_sd) - 1);
     sigma_alpha = square(sigma_mean) / square(sigma_sd);
     sigma_beta = sigma_mean / square(sigma_sd);
+    // fx_shape = 1 / square(fx_sd);
 }
 parameters {
     real<lower=1> shape;
     real<lower=0, upper=1> offset;
     real<lower=0> sigma;
+    real<lower=0> fecund_x;
 }
 transformed parameters {
     vector[n_obs] pcg_pred;             // predicted values
     real<lower=0> med_age;
     real<lower=0> width99;
-    pcg_pred = sim_pcg(shape, offset, total_N0, n_stages, time, L, K);
+    pcg_pred = sim_pcg(shape, offset, fecund_x, total_N0, n_stages, time, L, K);
     med_age = calc_med_age(shape, offset, n_stages);
     width99 = calc_width99(shape);
 }
@@ -140,6 +149,7 @@ model {
     shape ~ gamma(shape_alpha, shape_beta)T[1.0,];
     offset ~ beta(offset_alpha, offset_beta);
     sigma ~ gamma(sigma_alpha, sigma_beta);
+    fecund_x ~ normal(1, fx_sd)T[0.0,];
     // observations:
     pcg ~ normal(pcg_pred, sigma);
 }
